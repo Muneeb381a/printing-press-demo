@@ -10,4 +10,5 @@ export { default as Spinner, PageSpinner } from './Spinner.jsx';
 export { default as EmptyState }    from './EmptyState.jsx';
 export { default as PageHeader }    from './PageHeader.jsx';
 export { default as StatCard }      from './StatCard.jsx';
-export { default as ConfirmDialog } from './ConfirmDialog.jsx';
+export { default as ConfirmDialog }     from './ConfirmDialog.jsx';
+export { default as CustomerCombobox }  from './CustomerCombobox.jsx';

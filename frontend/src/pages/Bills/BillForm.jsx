@@ -4,12 +4,12 @@ import { useForm } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
-  Plus, Save, ArrowLeft, Trash2, UserPlus, FileText,
+  Plus, Save, ArrowLeft, Trash2, FileText,
   Hash, CheckCircle, XCircle, Loader, ChevronDown, Zap,
   Package, Layers, Maximize2, Receipt,
 } from 'lucide-react';
 import {
-  Input, Select, Textarea, Button, Card, PageHeader, Modal,
+  Input, Select, Textarea, Button, Card, PageHeader, Modal, CustomerCombobox,
 } from '../../components/ui/index.js';
 import { formatCurrency } from '../../utils/format.js';
 import * as custApi from '../../api/customers.js';
@@ -17,7 +17,6 @@ import * as billApi from '../../api/bills.js';
 import * as catApi  from '../../api/categories.js';
 import BillItemRow  from './BillItemRow.jsx';
 import BillTotals   from './BillTotals.jsx';
-import CustomerForm from '../Customers/CustomerForm.jsx';
 import cn from '../../utils/cn.js';
 
 const TYPE_MAP = {
@@ -141,7 +140,6 @@ const BillForm = () => {
   const [isAutoDiscount,   setIsAutoDiscount]   = useState(false);
   const [advance,          setAdvance]          = useState('');
   const [payMethod,        setPayMethod]        = useState('cash');
-  const [quickCustOpen,    setQuickCustOpen]    = useState(false);
   const [quickCatOpen,     setQuickCatOpen]     = useState(false);
   const [quickCatRowId,    setQuickCatRowId]    = useState(null);
 
@@ -183,12 +181,13 @@ const BillForm = () => {
     label: `${c.name} — ${c.phone}`,
   }));
 
-  const handleCustomerCreated = (customer) => {
-    qc.invalidateQueries({ queryKey: ['customers'] }).then(() => {
-      setValue('customerId', String(customer.id), { shouldValidate: true });
-    });
-    setQuickCustOpen(false);
-    toast.success(`${customer.name} added and selected`);
+  const handleQuickAdd = async (name, phone) => {
+    const res = await custApi.createCustomer({ name, phone });
+    const customer = res?.data ?? res;
+    await qc.invalidateQueries({ queryKey: ['customers'] });
+    setValue('customerId', String(customer.id), { shouldValidate: true });
+    toast.success(`${customer.name} add ho gaya!`);
+    return customer;
   };
 
   const handleQuickCreate = (rowId) => {
@@ -391,26 +390,15 @@ const BillForm = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex gap-2 items-end">
-                  <Select
-                    label="Customer"
-                    required
-                    placeholder="Select customer…"
-                    options={customers}
-                    error={errors.customerId?.message}
-                    {...register('customerId', { required: 'Customer is required' })}
-                    wrapperClassName="flex-1"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setQuickCustOpen(true)}
-                    title="Add new customer"
-                    className="mb-1 inline-flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-brand-600 border border-brand-200 rounded-xl hover:bg-brand-50 active:bg-brand-100 transition-all cursor-pointer shrink-0"
-                  >
-                    <UserPlus size={14} />
-                    <span className="hidden sm:inline">New</span>
-                  </button>
-                </div>
+                <CustomerCombobox
+                  customers={customers}
+                  value={selectedCustomerId || ''}
+                  onChange={(val) => setValue('customerId', val, { shouldValidate: true })}
+                  onQuickAdd={handleQuickAdd}
+                  error={errors.customerId?.message}
+                  required
+                />
+                <input type="hidden" {...register('customerId', { required: 'Customer is required' })} />
                 <Input label="Bill Date" type="date" {...register('billDate')} />
               </div>
 
@@ -793,10 +781,6 @@ const BillForm = () => {
 
         </div>
       </form>
-
-      <Modal isOpen={quickCustOpen} onClose={() => setQuickCustOpen(false)} title="Add New Customer" size="sm">
-        <CustomerForm onSuccess={handleCustomerCreated} />
-      </Modal>
 
       <Modal isOpen={quickCatOpen} onClose={() => { setQuickCatOpen(false); setQuickCatRowId(null); }} title="Add New Product" size="sm">
         {quickCatOpen && <QuickCategoryForm onSuccess={handleQuickCatCreated} />}

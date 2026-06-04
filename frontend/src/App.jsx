@@ -15,6 +15,8 @@ import Settings       from './pages/Settings/index.jsx';
 import Inventory      from './pages/Inventory/index.jsx';
 import CustomerLedger from './pages/Customers/CustomerLedger.jsx';
 import Expenses       from './pages/Expenses/index.jsx';
+import Employees      from './pages/Employees/index.jsx';
+import Attendance     from './pages/Attendance/index.jsx';
 import NotFound       from './pages/NotFound.jsx';
 
 const router = createBrowserRouter([
@@ -39,6 +41,8 @@ const router = createBrowserRouter([
           { path: 'inventory',                 element: <Inventory /> },
           { path: 'customers/:id/ledger',      element: <CustomerLedger /> },
           { path: 'expenses',                  element: <Expenses /> },
+          { path: 'employees',                 element: <Employees /> },
+          { path: 'attendance',                element: <Attendance /> },
         ],
       },
     ],

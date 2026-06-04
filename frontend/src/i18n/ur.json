@@ -10,7 +10,10 @@
 
   "nav_main":          "اہم",
   "nav_finance":       "مالیات",
+  "nav_hr":            "عملہ",
   "nav_system":        "نظام",
+  "employees":         "ملازمین",
+  "attendance":        "حاضری",
 
   "new_bill":          "نیا بل",
   "add_customer":      "گاہک شامل کریں",

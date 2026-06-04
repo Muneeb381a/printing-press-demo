@@ -10,7 +10,10 @@
 
   "nav_main":          "MAIN",
   "nav_finance":       "FINANCE",
+  "nav_hr":            "HR",
   "nav_system":        "SYSTEM",
+  "employees":         "Employees",
+  "attendance":        "Attendance",
 
   "new_bill":          "New Bill",
   "add_customer":      "Add Customer",

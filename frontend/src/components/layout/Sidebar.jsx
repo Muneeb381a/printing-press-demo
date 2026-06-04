@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, FileText,
   BookOpen, BarChart2, Printer, Settings, Boxes, X, TrendingDown,
+  UserCheck, CalendarDays,
 } from 'lucide-react';
 import cn from '../../utils/cn.js';
 import { useLanguage } from '../../i18n/LanguageContext.jsx';
@@ -22,6 +23,13 @@ const NAV_GROUPS = [
       { to: '/ledger',   key: 'ledger',   icon: BookOpen },
       { to: '/reports',  key: 'reports',  icon: BarChart2 },
       { to: '/expenses', key: 'expenses', icon: TrendingDown },
+    ],
+  },
+  {
+    key: 'nav_hr',
+    items: [
+      { to: '/employees',  key: 'employees',  icon: UserCheck },
+      { to: '/attendance', key: 'attendance', icon: CalendarDays },
     ],
   },
   {
