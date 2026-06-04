@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Trash2, Plus, ChevronDown, ChevronUp } from 'lucide-react';
-import { Input, Select } from '../../components/ui/index.js';
+import { Trash2, Plus, ChevronDown, ChevronUp, Copy } from 'lucide-react';
+import { Input } from '../../components/ui/index.js';
+import CategoryCombobox from '../../components/ui/CategoryCombobox.jsx';
 import { formatCurrency } from '../../utils/format.js';
 import * as catApi from '../../api/categories.js';
 import cn from '../../utils/cn.js';
@@ -41,8 +42,20 @@ const ReadBox = ({ label, value, highlight }) => (
   </div>
 );
 
-const BillItemRow = ({ item, index, onUpdate, onRemove, onQuickCreate }) => {
+const BillItemRow = ({ item, index, onUpdate, onRemove, onDuplicate, onQuickCreate, catRef, onEnterFromLast }) => {
   const [expanded, setExpanded] = useState(false);
+
+  const widthRef  = useRef(null);
+  const heightRef = useRef(null);
+  const qtyRef    = useRef(null);
+  const rateRef   = useRef(null);
+
+  const advance = (nextRef) => (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); nextRef.current?.focus(); nextRef.current?.select?.(); }
+  };
+  const handleRateEnter = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); onEnterFromLast?.(); }
+  };
 
   const { data: catData } = useQuery({
     queryKey:  ['categories'],
@@ -78,16 +91,21 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onQuickCreate }) => {
 
   const stripClass = STRIP[type] ?? 'border-l-slate-200';
 
-  const handleCategoryChange = (e) => {
-    const cat            = allCats.find((c) => String(c.id) === e.target.value);
+  const handleCategoryChange = (value) => {
+    const cat            = allCats.find((c) => String(c.id) === value);
     const newType        = TYPE_MAP[cat?.pricing_type] ?? 'fixed';
     const newPricingMode = cat?.pricing_mode ?? 'total';
     onUpdate(item.id, {
-      categoryId:  e.target.value,
+      categoryId:  value,
       catType:     newType,
       pricingMode: newPricingMode,
       width: '', height: '', quantity: 1, sqft: null, rate: '',
     });
+    setTimeout(() => {
+      if (newType === 'area')          widthRef.current?.focus();
+      else if (newType === 'quantity') qtyRef.current?.focus();
+      else                             rateRef.current?.focus();
+    }, 0);
   };
 
   return (
@@ -107,19 +125,20 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onQuickCreate }) => {
             {index + 1}
           </span>
 
-          <Select
+          <CategoryCombobox
+            ref={catRef}
             label="Product / Service"
             placeholder="Select product…"
             options={categories}
             value={item.categoryId}
             onChange={handleCategoryChange}
-            size="lg"
             wrapperClassName="flex-1"
           />
 
           <div className="flex items-end gap-1 mb-0.5">
             <button
               type="button"
+              tabIndex={-1}
               onClick={() => onQuickCreate?.(item.id)}
               title="Add new product"
               className="p-2 text-brand-500 hover:text-brand-700 hover:bg-brand-50 rounded-lg transition-colors cursor-pointer"
@@ -128,6 +147,16 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onQuickCreate }) => {
             </button>
             <button
               type="button"
+              tabIndex={-1}
+              onClick={() => onDuplicate?.(item.id)}
+              title="Duplicate row"
+              className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
+            >
+              <Copy size={15} />
+            </button>
+            <button
+              type="button"
+              tabIndex={-1}
               onClick={() => onRemove(item.id)}
               className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
             >
@@ -142,30 +171,36 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onQuickCreate }) => {
         <div className="px-4 pb-3">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <Input
+              ref={widthRef}
               label="Width (ft)"
               type="number" min="0" step="0.1" placeholder="0"
               size="lg"
               value={item.width}
+              onKeyDown={advance(heightRef)}
               onChange={(e) => {
                 const w = e.target.value;
                 onUpdate(item.id, { width: w, sqft: calcSqft(w, item.height, item.quantity) });
               }}
             />
             <Input
+              ref={heightRef}
               label="Height (ft)"
               type="number" min="0" step="0.1" placeholder="0"
               size="lg"
               value={item.height}
+              onKeyDown={advance(qtyRef)}
               onChange={(e) => {
                 const h = e.target.value;
                 onUpdate(item.id, { height: h, sqft: calcSqft(item.width, h, item.quantity) });
               }}
             />
             <Input
+              ref={qtyRef}
               label="Quantity"
               type="number" min="1" step="1" placeholder="1"
               size="lg"
               value={item.quantity}
+              onKeyDown={advance(rateRef)}
               onChange={(e) => {
                 const q = e.target.value;
                 onUpdate(item.id, { quantity: q, sqft: calcSqft(item.width, item.height, q) });
@@ -177,10 +212,12 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onQuickCreate }) => {
               highlight={false}
             />
             <Input
+              ref={rateRef}
               label="Rate / sqft"
               type="number" min="0" step="1" prefix="₨" placeholder="0"
               size="lg"
               value={item.rate}
+              onKeyDown={handleRateEnter}
               onChange={(e) => onUpdate(item.id, { rate: e.target.value })}
             />
             <ReadBox
@@ -208,17 +245,21 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onQuickCreate }) => {
         <div className="px-4 pb-3">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <Input
+              ref={qtyRef}
               label="Quantity"
               type="number" min="1" step="1" placeholder="1"
               size="lg"
               value={item.quantity}
+              onKeyDown={advance(rateRef)}
               onChange={(e) => onUpdate(item.id, { quantity: e.target.value })}
             />
             <Input
+              ref={rateRef}
               label={pricingMode === 'per_unit' ? 'Rate / item' : 'Total Amount'}
               type="number" min="0" step="1" prefix="₨" placeholder="0"
               size="lg"
               value={item.rate}
+              onKeyDown={handleRateEnter}
               onChange={(e) => onUpdate(item.id, { rate: e.target.value })}
             />
             {pricingMode === 'per_unit' && (
@@ -250,10 +291,12 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onQuickCreate }) => {
         <div className="px-4 pb-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
+              ref={rateRef}
               label="Amount (PKR)"
               type="number" min="0" step="1" prefix="₨" placeholder="0"
               size="lg"
               value={item.rate}
+              onKeyDown={handleRateEnter}
               onChange={(e) => onUpdate(item.id, { rate: e.target.value })}
             />
           </div>
@@ -264,6 +307,7 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onQuickCreate }) => {
       <div className="border-t border-slate-100">
         <button
           type="button"
+          tabIndex={-1}
           onClick={() => setExpanded((v) => !v)}
           className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
         >

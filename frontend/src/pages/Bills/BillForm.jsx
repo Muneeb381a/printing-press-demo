@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -214,6 +214,49 @@ const BillForm = () => {
   const updateItem   = (id, patch) => setItems((p) => p.map((it) => it.id === id ? { ...it, ...patch } : it));
   const removeItem   = (id)        => setItems((p) => p.filter((it) => it.id !== id));
   const addItem      = ()          => setItems((p) => [...p, newItem()]);
+
+  const duplicateItem = (id) => setItems((p) => {
+    const idx = p.findIndex((it) => it.id === id);
+    if (idx === -1) return p;
+    const src  = p[idx];
+    const copy = { ...newItem(), categoryId: src.categoryId, catType: src.catType, pricingMode: src.pricingMode };
+    const next = [...p];
+    next.splice(idx + 1, 0, copy);
+    return next;
+  });
+
+  const itemCatRefs    = useRef(new Map());
+  const pendingFocusId = useRef(null);
+
+  const getOrCreateCatRef = useCallback((id) => {
+    if (!itemCatRefs.current.has(id)) itemCatRefs.current.set(id, { current: null });
+    return itemCatRefs.current.get(id);
+  }, []);
+
+  useEffect(() => {
+    const ids = new Set(items.map((it) => it.id));
+    for (const id of [...itemCatRefs.current.keys()]) {
+      if (!ids.has(id)) itemCatRefs.current.delete(id);
+    }
+  }, [items]);
+
+  useEffect(() => {
+    if (!pendingFocusId.current) return;
+    const ref = itemCatRefs.current.get(pendingFocusId.current);
+    pendingFocusId.current = null;
+    requestAnimationFrame(() => ref?.current?.focus());
+  }, [items.length]); // eslint-disable-line
+
+  const handleEnterFromLast = useCallback((itemId) => {
+    const idx = items.findIndex((it) => it.id === itemId);
+    if (idx !== -1 && idx < items.length - 1) {
+      itemCatRefs.current.get(items[idx + 1].id)?.current?.focus();
+    } else {
+      const item = newItem();
+      pendingFocusId.current = item.id;
+      setItems((p) => [...p, item]);
+    }
+  }, [items]);
 
   const addExtraCharge = (preset = null) =>
     setExtraCharges((p) => [
@@ -512,7 +555,10 @@ const BillForm = () => {
                     index={i}
                     onUpdate={updateItem}
                     onRemove={removeItem}
+                    onDuplicate={duplicateItem}
                     onQuickCreate={handleQuickCreate}
+                    catRef={getOrCreateCatRef(item.id)}
+                    onEnterFromLast={() => handleEnterFromLast(item.id)}
                   />
                 ))}
                 {items.length === 0 && (
