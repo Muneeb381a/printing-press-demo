@@ -19,6 +19,12 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (res) => res.data,
   (err) => {
+    // Demo period ended
+    if (err.response?.data?.code === 'demo_expired') {
+      window.location.href = '/demo-expired';
+      return Promise.reject(err);
+    }
+
     // Expired / invalid token → clear session and redirect to login
     if (err.response?.status === 401) {
       localStorage.removeItem(TOKEN_KEY);

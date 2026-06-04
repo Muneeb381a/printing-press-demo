@@ -18,6 +18,7 @@ import Expenses       from './pages/Expenses/index.jsx';
 import Employees      from './pages/Employees/index.jsx';
 import Attendance     from './pages/Attendance/index.jsx';
 import NotFound       from './pages/NotFound.jsx';
+import DemoExpired    from './pages/DemoExpired.jsx';
 
 const router = createBrowserRouter([
   { path: 'login', element: <Login /> },
@@ -49,6 +50,7 @@ const router = createBrowserRouter([
   },
 
   { path: 'bills/:id/print', element: <PrintInvoice /> },
+  { path: 'demo-expired',    element: <DemoExpired /> },
   { path: '*',               element: <NotFound /> },
 ]);
 

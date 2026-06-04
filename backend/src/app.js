@@ -21,6 +21,7 @@ import attendanceRoutes from './routes/attendance.js';
 import authRoutes       from './routes/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth }  from './middleware/requireAuth.js';
+import { demoGuard }    from './middleware/demoGuard.js';
 
 const app = express();
 
@@ -52,8 +53,11 @@ if (process.env.NODE_ENV !== 'test') {
   app.use(morgan('dev'));
 }
 
-// ── Health Check (public) ─────────────────────────────────────
+// ── Health Check (public, no demo guard) ─────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
+
+// ── Demo expiry guard — applies to all API routes ─────────────
+app.use('/api', demoGuard);
 
 // ── Auth routes (public — no token required) ──────────────────
 app.use('/api/auth', authRoutes);
