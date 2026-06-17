@@ -102,6 +102,35 @@ export const deleteMapping = async (req, res, next) => {
   res.json({ message: 'Mapping removed' });
 };
 
+// ── Category → Inventory mappings ────────────────────────────
+
+export const getItemCategoryMappings = async (req, res) => {
+  const { rows } = await Q.getCategoryMappingsForItem(req.params.id);
+  res.json({ data: rows });
+};
+
+export const getCategoryMappings = async (req, res) => {
+  const { rows } = await Q.getMappingsForCategory(req.params.categoryId);
+  res.json({ data: rows });
+};
+
+export const upsertCategoryMapping = async (req, res, next) => {
+  const { inventoryItemId, qtyPerUnit, useSqft } = req.body;
+  if (!inventoryItemId) return next(createError(400, 'inventoryItemId is required'));
+  const { rows } = await Q.upsertCategoryMapping(
+    req.params.categoryId, inventoryItemId, { qtyPerUnit, useSqft }
+  );
+  res.json({ data: rows[0] });
+};
+
+export const deleteCategoryMapping = async (req, res, next) => {
+  const { rows } = await Q.deleteCategoryMapping(
+    req.params.categoryId, req.params.inventoryItemId
+  );
+  if (!rows.length) return next(createError(404, 'Mapping not found'));
+  res.json({ message: 'Mapping removed' });
+};
+
 // ── Dashboard alerts ──────────────────────────────────────────
 
 export const getAlerts = async (_req, res) => {

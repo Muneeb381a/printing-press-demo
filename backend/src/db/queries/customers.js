@@ -49,8 +49,39 @@ export const update = (id, { name, phone, email, address, discountType, discount
     [id, name, phone, email, address, discountType, discountPercentage]
   );
 
-export const remove = (id) =>
-  pool.query(`DELETE FROM customers WHERE id = $1 RETURNING id`, [id]);
+export const remove = async (id) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM payments WHERE bill_id IN (SELECT id FROM bills WHERE customer_id = $1)`, [id]);
+    await client.query(`DELETE FROM bills    WHERE customer_id = $1`, [id]);
+    const result = await client.query(`DELETE FROM customers WHERE id = $1 RETURNING id`, [id]);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+export const bulkRemove = async (ids) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM payments WHERE bill_id IN (SELECT id FROM bills WHERE customer_id = ANY($1::int[]))`, [ids]);
+    await client.query(`DELETE FROM bills    WHERE customer_id = ANY($1::int[])`, [ids]);
+    const result = await client.query(`DELETE FROM customers WHERE id = ANY($1::int[]) RETURNING id`, [ids]);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
 
 export const getLedger = (customerId) =>
   pool.query(

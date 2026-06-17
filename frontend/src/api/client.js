@@ -19,19 +19,16 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (res) => res.data,
   (err) => {
-    // Demo period ended
-    if (err.response?.data?.code === 'demo_expired') {
-      window.location.href = '/demo-expired';
-      return Promise.reject(err);
-    }
-
     // Expired / invalid token → clear session and redirect to login
     if (err.response?.status === 401) {
+      const code = err.response?.data?.code;
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem('pp_user');
-      // Avoid redirect loop if already on /login
       if (!window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
+        if (code === 'SESSION_REPLACED') {
+          toast.error('کسی دوسری ڈیوائس پر لاگ ان ہوا — آپ کا سیشن ختم ہو گیا۔', { duration: 5000 });
+        }
+        setTimeout(() => { window.location.href = '/login'; }, code === 'SESSION_REPLACED' ? 1500 : 0);
       }
       return Promise.reject(err);
     }

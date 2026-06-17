@@ -33,3 +33,20 @@ export const getStockAlerts = async (_req, res) => {
   const { rows } = await Q.getStockAlerts();
   res.json({ data: rows });
 };
+
+export const getRevenueSummary = async (req, res) => {
+  const today = new Date().toISOString().split('T')[0];
+  const { from = today, to = today } = req.query;
+  const { rows } = await Q.getRevenueSummary(from, to);
+  res.json({ data: rows[0] });
+};
+
+export const getDailyClosing = async (req, res) => {
+  const date = req.query.date || new Date().toISOString().split('T')[0];
+  const [summary, payments, expenses] = await Promise.all([
+    Q.getDailyClosing(date),
+    Q.getDailyPayments(date),
+    Q.getDailyExpenses(date),
+  ]);
+  res.json({ data: { ...summary.rows[0], payments: payments.rows, expenses: expenses.rows, date } });
+};

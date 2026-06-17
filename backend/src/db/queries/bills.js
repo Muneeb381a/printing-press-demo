@@ -2,11 +2,12 @@ import pool from '../../config/db.js';
 
 // ── Bills ─────────────────────────────────────────────────────
 
-export const findAll = ({ customerId = null, status = null, search = '', limit = 50, offset = 0 } = {}) =>
+export const findAll = ({ customerId = null, status = null, search = '', limit = 50, offset = 0, createdBy = null } = {}) =>
   pool.query(
-    `SELECT b.id, b.bill_number, b.status,
+    `SELECT b.id, b.bill_number, b.status, b.priority,
             b.subtotal, b.discount_amount, b.extra_charges, b.total_amount,
             b.advance_paid, b.remaining_balance, b.due_date, b.created_at,
+            b.created_by,
             c.id AS customer_id, c.name AS customer_name, c.phone AS customer_phone,
             COUNT(*) OVER() AS total_count
      FROM   bills b
@@ -14,14 +15,31 @@ export const findAll = ({ customerId = null, status = null, search = '', limit =
      WHERE  ($1::int IS NULL OR b.customer_id = $1)
        AND  ($2::text IS NULL OR b.status = $2::order_status)
        AND  ($3 = '' OR c.name ILIKE $3 OR c.phone ILIKE $3 OR b.bill_number ILIKE $3)
+       AND  ($6::int IS NULL OR b.created_by = $6)
      ORDER  BY b.created_at DESC
      LIMIT  $4 OFFSET $5`,
-    [customerId, status, search ? `%${search}%` : '', limit, offset]
+    [customerId, status, search ? `%${search}%` : '', limit, offset, createdBy]
+  );
+
+export const updatePriority = (id, priority) =>
+  pool.query(
+    `UPDATE bills SET priority = $2 WHERE id = $1 RETURNING id, priority`,
+    [id, priority]
+  );
+
+export const updateDesignStatus = (id, design_status, design_notes) =>
+  pool.query(
+    `UPDATE bills SET
+       design_status = COALESCE($2, design_status),
+       design_notes  = $3
+     WHERE id = $1
+     RETURNING id, design_status, design_notes`,
+    [id, design_status ?? null, design_notes ?? null]
   );
 
 export const findById = (id) =>
   pool.query(
-    `SELECT b.*,
+    `SELECT b.*, b.priority,
             c.name AS customer_name, c.phone AS customer_phone, c.address AS customer_address
      FROM   bills b
      JOIN   customers c ON c.id = b.customer_id
@@ -42,7 +60,8 @@ export const findByIdWithItems = async (id) => {
               bi.unit_price, bi.item_total, bi.design_fee, bi.urgent_fee,
               bi.notes AS item_notes, bi.sort_order, bi.created_at,
               COALESCE(direct_cat.name, p.name) AS product_name,
-              COALESCE(direct_cat.name, parent_cat.name) AS category_name
+              COALESCE(direct_cat.name, parent_cat.name) AS category_name,
+              COALESCE(direct_cat.count_in_sqft, parent_cat.count_in_sqft, TRUE) AS count_in_sqft
        FROM   bill_items bi
        LEFT JOIN products p       ON p.id   = bi.product_id
        LEFT JOIN categories parent_cat ON parent_cat.id = p.category_id
@@ -70,11 +89,11 @@ export const findByIdWithItems = async (id) => {
   };
 };
 
-export const create = (client, { billNumber, customerId }) =>
+export const create = (client, { billNumber, customerId, createdBy = null }) =>
   client.query(
-    `INSERT INTO bills (bill_number, customer_id)
-     VALUES ($1, $2) RETURNING *`,
-    [billNumber, customerId]
+    `INSERT INTO bills (bill_number, customer_id, created_by)
+     VALUES ($1, $2, $3) RETURNING *`,
+    [billNumber, customerId, createdBy]
   );
 
 export const updateTotals = (client, billId, { subtotal, discountType, discountValue, discountAmount, extraCharges, totalAmount, advancePaid, remainingBalance }) =>

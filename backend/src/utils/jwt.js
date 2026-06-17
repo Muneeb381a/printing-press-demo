@@ -2,7 +2,7 @@
  * Minimal JWT (HS256) — zero external dependencies, uses Node.js built-in crypto.
  * Compatible with any standard JWT verifier on the frontend or tooling.
  */
-import { createHmac } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 
 const b64u = (str) =>
   Buffer.from(str).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -47,7 +47,11 @@ export const verifyJwt = (token) => {
   const [header, body, sig] = parts;
   const expected = b64u(createHmac('sha256', getSecret()).update(`${header}.${body}`).digest());
 
-  if (sig !== expected) throw new Error('Invalid signature');
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expected);
+  if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) {
+    throw new Error('Invalid signature');
+  }
 
   const payload = JSON.parse(b64uDecode(body));
   if (payload.exp < Math.floor(Date.now() / 1000)) throw new Error('Token expired');

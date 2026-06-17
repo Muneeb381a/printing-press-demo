@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import {
   Plus, Search, FileText, Pencil, Trash2,
-  ChevronRight, Users, AlertCircle,
+  ChevronRight, Users, AlertCircle, CheckSquare,
 } from 'lucide-react';
 import {
   PageHeader, Modal, ConfirmDialog, Button, Input,
@@ -49,10 +49,11 @@ const Customers = () => {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  const [search,   setSearch]   = useState('');
-  const [modal,    setModal]    = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [filter,   setFilter]   = useState(''); // '' | 'outstanding' | 'cleared'
+  const [search,      setSearch]      = useState('');
+  const [modal,       setModal]       = useState(null);
+  const [selected,    setSelected]    = useState(null);
+  const [filter,      setFilter]      = useState(''); // '' | 'outstanding' | 'cleared'
+  const [checkedIds,  setCheckedIds]  = useState(new Set());
 
   const debouncedSearch = useDebounce(search);
 
@@ -71,7 +72,24 @@ const Customers = () => {
     onError: (err) => toast.error(err?.response?.data?.error || 'Failed to delete'),
   });
 
+  const bulkDeleteMutation = useMutation({
+    mutationFn: () => api.bulkDeleteCustomers([...checkedIds]),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['customers'] });
+      toast.success(`${res.ids?.length ?? checkedIds.size} customer(s) deleted`);
+      setCheckedIds(new Set());
+      closeModal();
+    },
+    onError: (err) => toast.error(err?.response?.data?.error || 'Failed to delete'),
+  });
+
   const closeModal = () => { setModal(null); setSelected(null); };
+
+  const toggleCheck = (id) =>
+    setCheckedIds((prev) => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
+
+  const toggleAll = () =>
+    setCheckedIds(checkedIds.size === customers.length ? new Set() : new Set(customers.map((c) => c.id)));
 
   const all = data?.data || [];
 
@@ -94,9 +112,21 @@ const Customers = () => {
         title="Customers"
         subtitle={`${all.length} customer${all.length !== 1 ? 's' : ''}`}
         action={
-          <Button icon={<Plus size={16} />} onClick={() => setModal('add')}>
-            Add Customer
-          </Button>
+          <div className="flex items-center gap-2">
+            {checkedIds.size > 0 && (
+              <Button
+                variant="danger"
+                size="sm"
+                icon={<Trash2 size={14} />}
+                onClick={() => setModal('bulk-delete')}
+              >
+                Delete ({checkedIds.size})
+              </Button>
+            )}
+            <Button icon={<Plus size={16} />} onClick={() => setModal('add')}>
+              Add Customer
+            </Button>
+          </div>
         }
       />
 
@@ -195,7 +225,15 @@ const Customers = () => {
         {/* Column headers */}
         {!isLoading && customers.length > 0 && (
           <div className="hidden md:grid grid-cols-12 gap-3 px-5 py-3 border-b border-slate-100 bg-slate-50/80">
-            <p className="col-span-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider">Customer</p>
+            <div className="col-span-3 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={customers.length > 0 && checkedIds.size === customers.length}
+                onChange={toggleAll}
+                className="w-4 h-4 rounded accent-brand-600 cursor-pointer shrink-0"
+              />
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Customer</p>
+            </div>
             <p className="col-span-1 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-center">Bills</p>
             <p className="col-span-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Total Business</p>
             <p className="col-span-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider text-right">Paid</p>
@@ -235,11 +273,19 @@ const Customers = () => {
                   className={cn(
                     'grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-3 px-5 py-4',
                     'border-l-4 transition-colors',
-                    hasBalance ? 'border-l-red-300 hover:bg-red-50/10' : 'border-l-emerald-300 hover:bg-slate-50',
+                    checkedIds.has(c.id)
+                      ? 'bg-brand-50/60 border-l-brand-400'
+                      : hasBalance ? 'border-l-red-300 hover:bg-red-50/10' : 'border-l-emerald-300 hover:bg-slate-50',
                   )}
                 >
-                  {/* Customer name + phone */}
+                  {/* Customer name + phone + checkbox */}
                   <div className="md:col-span-3 flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={checkedIds.has(c.id)}
+                      onChange={() => toggleCheck(c.id)}
+                      className="hidden md:block w-4 h-4 rounded accent-brand-600 cursor-pointer shrink-0"
+                    />
                     <Avatar name={c.name} />
                     <div className="min-w-0">
                       <p className="font-semibold text-slate-900 leading-tight truncate">{c.name}</p>
@@ -343,7 +389,18 @@ const Customers = () => {
         onConfirm={() => deleteMutation.mutate()}
         loading={deleteMutation.isPending}
         title={`Delete ${selected?.name}?`}
-        message="All bills linked to this customer will be affected. This cannot be undone."
+        message="Customer ke saare bills aur payments bhi delete ho jaenge. Yeh wapas nahi ho sakta."
+        confirmText="Delete"
+      />
+
+      <ConfirmDialog
+        isOpen={modal === 'bulk-delete'}
+        onClose={closeModal}
+        onConfirm={() => bulkDeleteMutation.mutate()}
+        loading={bulkDeleteMutation.isPending}
+        title={`Delete ${checkedIds.size} Customer${checkedIds.size !== 1 ? 's' : ''}?`}
+        message={`In ${checkedIds.size} customers ke saare bills aur payments bhi delete ho jaenge. Yeh wapas nahi ho sakta.`}
+        confirmText={`Delete All (${checkedIds.size})`}
       />
     </div>
   );

@@ -8,16 +8,27 @@ const Banner = ({ shopName = 'My Print Shop', tagline, greeting }) => {
   const navigate = useNavigate();
   const fileRef  = useRef(null);
 
-  const [image, setImage] = useState(() => localStorage.getItem(BANNER_KEY) || null);
+  const [image,     setImage]     = useState(() => localStorage.getItem(BANNER_KEY) || null);
+  const [sizeError, setSizeError] = useState('');
 
   const handleFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      setSizeError('Image must be under 2 MB. Please choose a smaller file.');
+      e.target.value = '';
+      return;
+    }
+    setSizeError('');
     const reader = new FileReader();
     reader.onload = (ev) => {
       const b64 = ev.target.result;
-      localStorage.setItem(BANNER_KEY, b64);
-      setImage(b64);
+      try {
+        localStorage.setItem(BANNER_KEY, b64);
+        setImage(b64);
+      } catch {
+        setSizeError('Could not save image — browser storage is full.');
+      }
     };
     reader.readAsDataURL(file);
     e.target.value = '';
@@ -99,6 +110,11 @@ const Banner = ({ shopName = 'My Print Shop', tagline, greeting }) => {
             <Upload size={12} />
             {image ? 'Change Banner' : 'Upload Banner'}
           </button>
+          {sizeError && (
+            <p className="text-red-300 text-[10px] font-medium max-w-[180px] text-right leading-snug">
+              {sizeError}
+            </p>
+          )}
 
           {/* Remove banner (only when image exists) */}
           {image && (

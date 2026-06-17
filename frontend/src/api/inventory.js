@@ -12,3 +12,8 @@ export const getAlerts      = ()                => client.get('/inventory/alerts
 export const getMappings    = (productId)       => client.get(`/inventory/product/${productId}/mappings`);
 export const upsertMapping  = (productId, data) => client.put(`/inventory/product/${productId}/mappings`, data);
 export const deleteMapping  = (productId, iid)  => client.delete(`/inventory/product/${productId}/mappings/${iid}`);
+
+// Category → Inventory mappings
+export const getItemCategoryMappings   = (itemId)        => client.get(`/inventory/${itemId}/category-mappings`);
+export const upsertCategoryMapping     = (catId, data)   => client.put(`/inventory/category/${catId}/mappings`, data);
+export const deleteCategoryMappingLink = (catId, itemId) => client.delete(`/inventory/category/${catId}/mappings/${itemId}`);

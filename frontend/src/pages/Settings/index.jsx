@@ -1,8 +1,10 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Store, Link2, Phone } from 'lucide-react';
+import { Save, Store, Link2, Phone, ShieldCheck, Eye, EyeOff, LogOut, MapPin, Locate } from 'lucide-react';
 import * as settingsAPI from '../../api/settings.js';
+import * as authAPI from '../../api/auth.js';
+import { useAuth } from '../../auth/AuthContext.jsx';
 import { toast } from 'react-hot-toast';
 
 const Field = ({ label, hint, error, children }) => (
@@ -36,6 +38,226 @@ const CTA_ROUTES = [
   { value: '/reports',      label: 'Reports  (/reports)' },
 ];
 
+// ── Change Password Section ───────────────────────────────────
+const ChangePasswordSection = () => {
+  const { logout } = useAuth();
+  const [showCur, setShowCur] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+
+  const { register, handleSubmit, reset, watch, formState: { errors } } = useForm();
+
+  const mutation = useMutation({
+    mutationFn: (d) => authAPI.changePassword(d.currentPassword, d.newPassword),
+    onSuccess: () => {
+      toast.success('Password changed! Logging out…');
+      reset();
+      setTimeout(() => logout(), 1500);
+    },
+    onError: (err) => toast.error(err?.response?.data?.error || 'Failed to change password'),
+  });
+
+  return (
+    <Section icon={ShieldCheck} title="Security" subtitle="Change your login password — all devices will be logged out">
+      <form onSubmit={handleSubmit((d) => mutation.mutate(d))} className="space-y-4">
+        <Field label="Current Password" error={errors.currentPassword?.message}>
+          <div className="relative">
+            <input
+              type={showCur ? 'text' : 'password'}
+              {...register('currentPassword', { required: 'Required' })}
+              className="w-full px-3 py-2 pe-10 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="••••••••"
+              autoComplete="current-password"
+            />
+            <button type="button" onClick={() => setShowCur(v => !v)}
+              className="absolute inset-e-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              {showCur ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+        </Field>
+
+        <Field label="New Password" error={errors.newPassword?.message}>
+          <div className="relative">
+            <input
+              type={showNew ? 'text' : 'password'}
+              {...register('newPassword', {
+                required: 'Required',
+                minLength: { value: 8, message: 'At least 8 characters' },
+              })}
+              className="w-full px-3 py-2 pe-10 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              placeholder="Minimum 8 characters"
+              autoComplete="new-password"
+            />
+            <button type="button" onClick={() => setShowNew(v => !v)}
+              className="absolute inset-e-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              {showNew ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+        </Field>
+
+        <Field label="Confirm New Password" error={errors.confirmPassword?.message}>
+          <input
+            type="password"
+            {...register('confirmPassword', {
+              required: 'Required',
+              validate: (v) => v === watch('newPassword') || 'Passwords do not match',
+            })}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            placeholder="Repeat new password"
+            autoComplete="new-password"
+          />
+        </Field>
+
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="flex items-center gap-2 bg-red-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-red-700 transition-colors disabled:opacity-50"
+        >
+          <ShieldCheck size={15} />
+          {mutation.isPending ? 'Changing…' : 'Change Password'}
+        </button>
+      </form>
+    </Section>
+  );
+};
+
+// ── Logout button ─────────────────────────────────────────────
+const LogoutButton = () => {
+  const { logout } = useAuth();
+  const [loading, setLoading] = useState(false);
+
+  const handleLogout = async () => {
+    setLoading(true);
+    await logout();
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 flex items-center justify-between">
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
+          <LogOut size={17} className="text-red-500" />
+        </div>
+        <div>
+          <h3 className="font-semibold text-gray-900 text-sm">Sign Out</h3>
+          <p className="text-xs text-gray-400 mt-0.5">End your current session on this device</p>
+        </div>
+      </div>
+      <button
+        onClick={handleLogout}
+        disabled={loading}
+        className="flex items-center gap-2 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 px-4 py-2 rounded-xl transition-colors disabled:opacity-50"
+      >
+        <LogOut size={14} />
+        {loading ? 'Signing out…' : 'Sign Out'}
+      </button>
+    </div>
+  );
+};
+
+// ── Shop Location Section ─────────────────────────────────────
+const ShopLocationSection = ({ currentLat, currentLng, currentRadius }) => {
+  const qc = useQueryClient();
+  const [locating, setLocating] = useState(false);
+  const { register, handleSubmit, setValue, watch, formState: { isDirty } } = useForm({
+    defaultValues: {
+      shopLat:            currentLat    ?? '',
+      shopLng:            currentLng    ?? '',
+      attendanceRadiusM:  currentRadius ?? 100,
+    },
+  });
+
+  const lat = watch('shopLat');
+  const lng = watch('shopLng');
+
+  const mutation = useMutation({
+    mutationFn: (d) => settingsAPI.updateLocation({
+      shopLat:           d.shopLat           ? parseFloat(d.shopLat)           : null,
+      shopLng:           d.shopLng           ? parseFloat(d.shopLng)           : null,
+      attendanceRadiusM: d.attendanceRadiusM ? parseInt(d.attendanceRadiusM)   : 100,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['shop-settings'] });
+      toast.success('Shop location saved!');
+    },
+    onError: (err) => toast.error(err?.response?.data?.error || 'Failed to save location'),
+  });
+
+  const detectLocation = () => {
+    if (!navigator.geolocation) return toast.error('GPS not supported in this browser');
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setValue('shopLat', pos.coords.latitude.toFixed(7),  { shouldDirty: true });
+        setValue('shopLng', pos.coords.longitude.toFixed(7), { shouldDirty: true });
+        setLocating(false);
+        toast.success('Location detected! Save to apply.');
+      },
+      () => { setLocating(false); toast.error('Could not detect location — enable GPS and try again'); },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  return (
+    <Section icon={MapPin} title="Shop Location" subtitle="Used for employee geo-fenced attendance — employees must be within radius to mark attendance">
+      <form onSubmit={handleSubmit((d) => mutation.mutate(d))} className="space-y-4">
+
+        <button
+          type="button"
+          onClick={detectLocation}
+          disabled={locating}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-indigo-200 text-indigo-600 font-semibold text-sm hover:bg-indigo-50 transition-colors disabled:opacity-50"
+        >
+          <Locate size={16} className={locating ? 'animate-spin' : ''} />
+          {locating ? 'Detecting location…' : 'Auto-detect from this device (recommended)'}
+        </button>
+
+        {lat && lng && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-xl text-xs text-emerald-700 font-medium">
+            <MapPin size={13} className="shrink-0" />
+            Location set: {parseFloat(lat).toFixed(5)}, {parseFloat(lng).toFixed(5)}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Latitude">
+            <input
+              type="number" step="any"
+              {...register('shopLat')}
+              placeholder="e.g. 31.5204"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </Field>
+          <Field label="Longitude">
+            <input
+              type="number" step="any"
+              {...register('shopLng')}
+              placeholder="e.g. 74.3587"
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </Field>
+        </div>
+
+        <Field label="Attendance Radius (meters)" hint="Employee must be within this distance from the shop. 100m recommended for indoor shops.">
+          <input
+            type="number" min="10" max="5000"
+            {...register('attendanceRadiusM')}
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </Field>
+
+        <button
+          type="submit"
+          disabled={mutation.isPending || !isDirty}
+          className="flex items-center gap-2 bg-indigo-600 text-white text-sm font-semibold px-5 py-2.5 rounded-xl hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Save size={15} />
+          {mutation.isPending ? 'Saving…' : 'Save Location'}
+        </button>
+      </form>
+    </Section>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
 const Settings = () => {
   const qc = useQueryClient();
 
@@ -88,7 +310,8 @@ const Settings = () => {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="max-w-2xl space-y-5">
+    <div className="max-w-2xl space-y-5">
+    <form onSubmit={handleSubmit(onSubmit)} className="contents">
 
       <Section icon={Store} title="Shop Identity" subtitle="Name and tagline shown across the app">
         <Field
@@ -176,6 +399,15 @@ const Settings = () => {
       </div>
 
     </form>
+
+    <ShopLocationSection
+      currentLat={data?.data?.shop_lat}
+      currentLng={data?.data?.shop_lng}
+      currentRadius={data?.data?.attendance_radius_m}
+    />
+    <ChangePasswordSection />
+    <LogoutButton />
+    </div>
   );
 };
 

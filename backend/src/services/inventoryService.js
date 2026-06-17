@@ -26,16 +26,35 @@ const calcConsumption = (billItem, mapping) => {
  */
 export const deductForBill = async (client, billId, billItems) => {
   for (const item of billItems) {
-    // Fetch all mappings for this product (a product may consume multiple materials)
-    const { rows: mappings } = await client.query(
-      `SELECT pim.*, i.current_stock, i.name AS item_name, i.warning_threshold, i.critical_threshold
-       FROM   product_inventory_map pim
-       JOIN   inventory_items i ON i.id = pim.inventory_item_id
-       WHERE  pim.product_id = $1`,
-      [item.product_id]
-    );
+    let mappings = [];
 
-    if (!mappings.length) continue; // product not tracked in inventory
+    // 1. Try product mapping first
+    if (item.product_id) {
+      const { rows } = await client.query(
+        `SELECT pim.inventory_item_id, pim.qty_per_unit, pim.use_sqft,
+                i.current_stock, i.name AS item_name, i.unit
+         FROM   product_inventory_map pim
+         JOIN   inventory_items i ON i.id = pim.inventory_item_id
+         WHERE  pim.product_id = $1`,
+        [item.product_id]
+      );
+      mappings = rows;
+    }
+
+    // 2. Fall back to category mapping
+    if (!mappings.length && item.category_id) {
+      const { rows } = await client.query(
+        `SELECT cim.inventory_item_id, cim.qty_per_unit, cim.use_sqft,
+                i.current_stock, i.name AS item_name, i.unit
+         FROM   category_inventory_map cim
+         JOIN   inventory_items i ON i.id = cim.inventory_item_id
+         WHERE  cim.category_id = $1`,
+        [item.category_id]
+      );
+      mappings = rows;
+    }
+
+    if (!mappings.length) continue;
 
     for (const mapping of mappings) {
       // Deduplication: skip if OUT already recorded for this bill_item
@@ -45,15 +64,7 @@ export const deductForBill = async (client, billId, billItems) => {
       const consumption = calcConsumption(item, mapping);
       if (consumption <= 0) continue;
 
-      // Validate sufficient stock
-      if (parseFloat(mapping.current_stock) < consumption) {
-        throw createError(
-          422,
-          `Insufficient stock: "${mapping.item_name}" has ${mapping.current_stock} ${mapping.unit} — order needs ${consumption}`
-        );
-      }
-
-      // Record OUT movement
+      // Record OUT movement (allow negative stock — tracking only)
       await Q.createMovement(client, {
         itemId:        mapping.inventory_item_id,
         movementType:  'OUT',
@@ -61,10 +72,9 @@ export const deductForBill = async (client, billId, billItems) => {
         referenceType: 'bill',
         referenceId:   billId,
         billItemId:    item.id,
-        notes:         `Bill #${billId} — product ${item.product_id}`,
+        notes:         `Bill #${billId}`,
       });
 
-      // Decrement current_stock in same transaction
       await Q.adjustStock(client, mapping.inventory_item_id, -consumption);
     }
   }

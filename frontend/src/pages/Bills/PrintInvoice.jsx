@@ -115,23 +115,33 @@ const PrintInvoice = () => {
                 <th className="text-left py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold w-6">#</th>
                 <th className="text-left py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">Item</th>
                 <th className="text-right py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">Qty</th>
+                <th className="text-right py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">Area</th>
                 <th className="text-right py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">Rate</th>
                 <th className="text-right py-2 text-xs uppercase tracking-wider text-gray-400 font-semibold">Amount</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {items.map((item, i) => {
-                const lineTotal = parseFloat(item.item_total)
+                const sqft      = parseFloat(item.sqft || 0);
+                const qty       = parseInt(item.quantity, 10) || 1;
+                const itemTotal = parseFloat(item.item_total || 0);
+                const lineTotal = itemTotal
                   + parseFloat(item.design_fee || 0)
                   + parseFloat(item.urgent_fee || 0);
+
+                const rate = sqft > 0
+                  ? formatCurrency(parseFloat((itemTotal / sqft).toFixed(2)))
+                  : qty > 1
+                    ? formatCurrency(parseFloat(item.unit_price || 0))
+                    : formatCurrency(itemTotal);
+
                 return (
                   <tr key={item.id}>
                     <td className="py-3 text-gray-400">{i + 1}</td>
                     <td className="py-3">
                       <p className="font-medium text-gray-900">{item.description || item.product_name}</p>
-                      <p className="text-xs text-gray-400">{PRICING_MODEL_LABELS[item.pricing_model]}</p>
                       {item.width && item.height && (
-                        <p className="text-xs text-gray-400">{item.width} × {item.height} ft{item.sqft ? ` = ${item.sqft} sqft` : ''}</p>
+                        <p className="text-xs text-gray-400">{item.width} × {item.height} ft</p>
                       )}
                       {(parseFloat(item.design_fee) > 0 || parseFloat(item.urgent_fee) > 0) && (
                         <p className="text-xs text-amber-600 mt-0.5">
@@ -142,7 +152,13 @@ const PrintInvoice = () => {
                       )}
                     </td>
                     <td className="py-3 text-right text-gray-600">{item.quantity}</td>
-                    <td className="py-3 text-right text-gray-600">{formatCurrency(item.unit_price)}</td>
+                    <td className="py-3 text-right">
+                      {sqft > 0 && item.count_in_sqft !== false
+                        ? <span className="font-semibold text-indigo-700">{sqft} sqft</span>
+                        : <span className="text-gray-300">—</span>
+                      }
+                    </td>
+                    <td className="py-3 text-right text-gray-700">{rate}</td>
                     <td className="py-3 text-right font-semibold text-gray-900">{formatCurrency(lineTotal)}</td>
                   </tr>
                 );

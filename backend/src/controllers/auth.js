@@ -1,8 +1,6 @@
 import { signJwt } from '../utils/jwt.js';
 
-// ── In-memory rate limiter (brute-force protection) ───────────
-// Tracks failed login attempts per IP. Resets after 15 min.
-// Note: serverless = per-instance memory; still blocks rapid sequential attacks.
+// ── In-memory rate limiter ────────────────────────────────────
 const attempts = new Map();
 const MAX_ATTEMPTS = 10;
 const WINDOW_MS    = 15 * 60 * 1000;
@@ -10,10 +8,9 @@ const WINDOW_MS    = 15 * 60 * 1000;
 const checkRateLimit = (ip) => {
   const now = Date.now();
   const rec = attempts.get(ip);
-
   if (!rec || rec.resetAt < now) {
     attempts.set(ip, { count: 1, resetAt: now + WINDOW_MS });
-    return false; // not limited
+    return false;
   }
   rec.count++;
   return rec.count > MAX_ATTEMPTS;
@@ -26,9 +23,7 @@ export const login = (req, res) => {
   const ip = req.ip || req.socket?.remoteAddress || 'unknown';
 
   if (checkRateLimit(ip)) {
-    return res.status(429).json({
-      error: 'Too many failed attempts. Try again in 15 minutes.',
-    });
+    return res.status(429).json({ error: 'Too many failed attempts. Try again in 15 minutes.' });
   }
 
   const { username = '', password = '' } = req.body;
@@ -38,9 +33,7 @@ export const login = (req, res) => {
 
   if (!adminPass) {
     console.error('[Auth] ADMIN_PASSWORD env var is not set!');
-    return res.status(500).json({
-      error: 'Server is not configured correctly. Contact the administrator.',
-    });
+    return res.status(500).json({ error: 'Server is not configured correctly.' });
   }
 
   if (username.trim() !== adminUser || password !== adminPass) {
@@ -49,15 +42,28 @@ export const login = (req, res) => {
 
   clearAttempts(ip);
 
-  const token = signJwt({ username: adminUser, role: 'admin' });
+  // userId: null so FK constraints are never violated in demo DB.
+  // role: 'owner' ensures requireRole('owner') passes for all protected routes.
+  // sessionToken: 'demo' is a fixed value — demo requireAuth doesn't validate it in DB.
+  const token = signJwt({ userId: null, username: adminUser, role: 'owner', sessionToken: 'demo' });
+
   return res.json({
     token,
-    user: { username: adminUser, role: 'admin' },
+    user: { id: null, username: adminUser, fullName: 'Demo Owner', role: 'owner' },
   });
 };
 
-// ── GET /api/auth/me — verify token + return user ────────────
+// ── POST /api/auth/logout ─────────────────────────────────────
+export const logout = (_req, res) => {
+  res.json({ message: 'Logged out' });
+};
+
+// ── POST /api/auth/change-password ────────────────────────────
+export const changePassword = (_req, res) => {
+  res.status(422).json({ error: 'Password changes are not available in the demo.' });
+};
+
+// ── GET /api/auth/me ──────────────────────────────────────────
 export const me = (req, res) => {
-  // req.user is populated by requireAuth middleware
   res.json({ user: req.user });
 };

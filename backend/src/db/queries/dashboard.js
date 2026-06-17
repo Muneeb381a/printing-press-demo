@@ -43,13 +43,16 @@ export const getMonthlySales = ({ months = 12 } = {}) =>
 
 export const getPendingOrders = ({ limit = 20 } = {}) =>
   pool.query(
-    `SELECT b.id, b.bill_number, b.status, b.total_amount, b.remaining_balance,
+    `SELECT b.id, b.bill_number, b.status, b.priority, b.total_amount, b.remaining_balance,
             b.due_date, b.created_at,
-            c.name AS customer_name, c.phone AS customer_phone
+            c.id AS customer_id, c.name AS customer_name, c.phone AS customer_phone
      FROM   bills b
      JOIN   customers c ON c.id = b.customer_id
      WHERE  b.status IN ('pending', 'in_progress')
-     ORDER  BY b.due_date ASC NULLS LAST, b.created_at ASC
+     ORDER  BY
+       CASE b.priority WHEN 'urgent' THEN 0 WHEN 'normal' THEN 1 WHEN 'low' THEN 2 ELSE 1 END,
+       b.due_date ASC NULLS LAST,
+       b.created_at ASC
      LIMIT  $1`,
     [limit]
   );
@@ -70,6 +73,73 @@ export const getStockAlerts = () =>
      LIMIT 10`
   );
 
+export const getDailyClosing = (date) =>
+  pool.query(
+    `SELECT
+       -- Cash actually received today (from payments table)
+       (SELECT COALESCE(SUM(p.amount), 0)
+          FROM payments p WHERE DATE(p.payment_date) = $1::date)             AS cash_collected,
+       (SELECT COUNT(*)
+          FROM payments p WHERE DATE(p.payment_date) = $1::date)             AS payment_count,
+
+       -- New bills created today
+       (SELECT COUNT(*) FROM bills WHERE DATE(created_at) = $1::date)        AS new_bills_count,
+       (SELECT COALESCE(SUM(total_amount),0) FROM bills
+          WHERE DATE(created_at) = $1::date)                                  AS new_bills_value,
+
+       -- Advance cash on new bills today
+       (SELECT COALESCE(SUM(advance_paid),0) FROM bills
+          WHERE DATE(created_at) = $1::date)                                  AS advance_today,
+
+       -- Bills completed today
+       (SELECT COUNT(*) FROM bills
+          WHERE status = 'completed' AND DATE(updated_at) = $1::date)         AS completed_today,
+
+       -- Bills delivered today
+       (SELECT COUNT(*) FROM bills
+          WHERE status = 'delivered' AND DATE(COALESCE(delivered_at, updated_at)) = $1::date) AS delivered_today,
+
+       -- Expenses today
+       (SELECT COALESCE(SUM(amount),0) FROM expenses
+          WHERE DATE(expense_date) = $1::date)                                AS expenses_today,
+       (SELECT COUNT(*) FROM expenses
+          WHERE DATE(expense_date) = $1::date)                                AS expense_count,
+
+       -- Total outstanding udhar
+       (SELECT COALESCE(SUM(remaining_balance),0) FROM bills
+          WHERE remaining_balance > 0 AND status NOT IN ('cancelled'))        AS total_outstanding,
+
+       -- Urgent pending orders
+       (SELECT COUNT(*) FROM bills
+          WHERE status IN ('pending','in_progress') AND priority = 'urgent')  AS urgent_pending,
+
+       -- Total pending + in_progress
+       (SELECT COUNT(*) FROM bills
+          WHERE status IN ('pending','in_progress'))                          AS active_orders`,
+    [date]
+  );
+
+export const getDailyPayments = (date) =>
+  pool.query(
+    `SELECT p.id, p.amount, p.payment_method, p.payment_date, p.notes,
+            b.bill_number, c.name AS customer_name, c.phone AS customer_phone
+     FROM   payments p
+     JOIN   bills    b ON b.id = p.bill_id
+     JOIN   customers c ON c.id = b.customer_id
+     WHERE  DATE(p.payment_date) = $1::date
+     ORDER  BY p.created_at DESC`,
+    [date]
+  );
+
+export const getDailyExpenses = (date) =>
+  pool.query(
+    `SELECT id, title, amount, category, payment_method, notes
+     FROM   expenses
+     WHERE  DATE(expense_date) = $1::date
+     ORDER  BY created_at DESC`,
+    [date]
+  );
+
 export const getTopProducts = ({ limit = 10, days = 30 } = {}) =>
   pool.query(
     `SELECT c.id, c.name,
@@ -85,4 +155,15 @@ export const getTopProducts = ({ limit = 10, days = 30 } = {}) =>
      ORDER  BY total_revenue DESC
      LIMIT  $1`,
     [limit, days]
+  );
+
+export const getRevenueSummary = (from, to) =>
+  pool.query(
+    `SELECT
+       COALESCE(SUM(total_amount), 0)      AS revenue,
+       COUNT(*)::int                        AS bill_count,
+       COALESCE(SUM(advance_paid), 0)      AS collected
+     FROM bills
+     WHERE DATE(created_at) BETWEEN $1::date AND $2::date`,
+    [from, to]
   );

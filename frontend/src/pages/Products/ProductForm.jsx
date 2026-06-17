@@ -29,22 +29,24 @@ const CategoryForm = ({ category, onSuccess }) => {
 
   const { register, handleSubmit, watch, reset, formState: { errors } } = useForm({
     defaultValues: {
-      name:        category?.name         || '',
-      pricingType: category?.pricing_type || 'area_based',
-      pricingMode: category?.pricing_mode || 'total',
-      rate:        category?.rate         || '',
-      isActive:    category?.is_active    ?? true,
+      name:          category?.name         || '',
+      pricingType:   category?.pricing_type || 'area_based',
+      pricingMode:   category?.pricing_mode || 'total',
+      rate:          category?.rate         || '',
+      isActive:      category?.is_active    ?? true,
+      countInSqft:   category?.count_in_sqft ?? true,
     },
   });
 
   useEffect(() => {
     if (category) {
       reset({
-        name:        category.name,
-        pricingType: category.pricing_type,
-        pricingMode: category.pricing_mode || 'total',
-        rate:        category.rate || '',
-        isActive:    category.is_active ?? true,
+        name:          category.name,
+        pricingType:   category.pricing_type,
+        pricingMode:   category.pricing_mode || 'total',
+        rate:          category.rate || '',
+        isActive:      category.is_active ?? true,
+        countInSqft:   category.count_in_sqft ?? true,
       });
     }
   }, [category, reset]);
@@ -54,11 +56,12 @@ const CategoryForm = ({ category, onSuccess }) => {
   const mutation = useMutation({
     mutationFn: (data) => {
       const payload = {
-        name:        data.name.trim(),
-        pricingType: data.pricingType,
-        pricingMode: data.pricingType === 'quantity_based' ? data.pricingMode : undefined,
-        rate:        data.rate ? parseFloat(data.rate) : undefined,
-        isActive:    data.isActive,
+        name:         data.name.trim(),
+        pricingType:  data.pricingType,
+        pricingMode:  data.pricingType === 'quantity_based' ? data.pricingMode : undefined,
+        rate:         data.rate ? parseFloat(data.rate) : undefined,
+        isActive:     data.isActive,
+        countInSqft:  data.pricingType === 'area_based' ? Boolean(data.countInSqft) : true,
       };
       return isEdit
         ? api.updateCategory(category.id, payload)
@@ -107,6 +110,20 @@ const CategoryForm = ({ category, onSuccess }) => {
         hint={RATE_HINT[pricingType]}
         {...register('rate')}
       />
+
+      {pricingType === 'area_based' && (
+        <label className="flex items-center gap-3 cursor-pointer select-none p-3 bg-amber-50 border border-amber-100 rounded-xl">
+          <div className="relative shrink-0">
+            <input type="checkbox" className="sr-only peer" {...register('countInSqft')} />
+            <div className="w-9 h-5 rounded-full bg-slate-200 peer-checked:bg-amber-500 transition-colors duration-150" />
+            <div className="absolute top-0.5 inset-s-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-all duration-150 peer-checked:translate-x-4" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-amber-900">Count in Total Sqft</p>
+            <p className="text-xs text-amber-700 mt-0.5">ON = Flex, banners → show in sqft summary · OFF = Visiting cards, stamps → exclude</p>
+          </div>
+        </label>
+      )}
 
       {isEdit && (
         <label className="flex items-center gap-3 cursor-pointer select-none">

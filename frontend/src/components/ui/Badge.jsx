@@ -69,4 +69,24 @@ export const PaymentBadge = ({ status }) => {
   );
 };
 
+// ── Priority badge ────────────────────────────────────────────
+const PRIORITY_CFG = {
+  urgent: { cls: 'bg-red-50 text-red-700 ring-1 ring-red-300',      dot: 'bg-red-500',    label: 'Urgent' },
+  normal: { cls: 'bg-slate-50 text-slate-500 ring-1 ring-slate-200', dot: 'bg-slate-400',  label: 'Normal' },
+  low:    { cls: 'bg-green-50 text-green-700 ring-1 ring-green-200', dot: 'bg-green-500',  label: 'Low'    },
+};
+
+export const PriorityBadge = ({ priority, className }) => {
+  const cfg = PRIORITY_CFG[priority] || PRIORITY_CFG.normal;
+  return (
+    <span className={cn(
+      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap',
+      cfg.cls, className
+    )}>
+      <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', cfg.dot)} />
+      {cfg.label}
+    </span>
+  );
+};
+
 export default Badge;

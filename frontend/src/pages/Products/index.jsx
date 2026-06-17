@@ -36,9 +36,13 @@ const Categories = () => {
 
   const deleteMutation = useMutation({
     mutationFn: () => api.deleteCategory(selected.id),
-    onSuccess:  () => {
+    onSuccess:  (res) => {
       qc.invalidateQueries({ queryKey: ['categories'] });
-      toast.success('Category deleted');
+      if (res?.deactivated) {
+        toast(res.message, { icon: '⚠️', duration: 5000 });
+      } else {
+        toast.success('Category deleted');
+      }
       closeModal();
     },
     onError: (err) => toast.error(err?.response?.data?.error || 'Failed to delete'),
@@ -143,7 +147,7 @@ const Categories = () => {
         onConfirm={() => deleteMutation.mutate()}
         loading={deleteMutation.isPending}
         title={`Delete "${selected?.name}"?`}
-        message="Existing bills using this category keep their data. The category will no longer appear when creating new bills."
+        message="If this category has linked products it will be deactivated instead. Existing bills keep their data."
       />
     </div>
   );

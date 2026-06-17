@@ -33,6 +33,9 @@ const BillTotals = ({
   onPaymentMethodChange,
   paymentMethod  = 'cash',
   readonly       = false,
+  hideAdvance    = false,
+  totalSqft      = 0,
+  areaSubtotal   = 0,
 }) => {
   const extraTotal = extraCharges.reduce((s, ec) => s + parseFloat(ec.amount || 0), 0);
 
@@ -80,7 +83,7 @@ const BillTotals = ({
       )}
 
       {/* Advance payment controls */}
-      {!readonly && (
+      {!readonly && !hideAdvance && (
         <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-100">
           <Input
             label="Advance Payment (PKR)"
@@ -96,6 +99,28 @@ const BillTotals = ({
             value={paymentMethod}
             onChange={(e) => onPaymentMethodChange?.(e.target.value)}
           />
+        </div>
+      )}
+
+      {/* Sqft summary — only when area items exist */}
+      {totalSqft > 0 && (
+        <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-6 rounded-full bg-amber-400 shrink-0" />
+            <div>
+              <p className="text-xs text-amber-700 font-semibold">Total Area</p>
+              <p className="text-base font-bold text-amber-900">{totalSqft} sqft</p>
+            </div>
+          </div>
+          {areaSubtotal > 0 && totalSqft > 0 && (
+            <div className="text-right">
+              <p className="text-xs text-amber-700 font-semibold">Avg Rate / sqft</p>
+              <p className="text-base font-bold text-amber-900">
+                {formatCurrency(parseFloat((areaSubtotal / totalSqft).toFixed(2)))}
+                <span className="text-xs font-medium text-amber-600 ml-1">/sqft</span>
+              </p>
+            </div>
+          )}
         </div>
       )}
 
@@ -132,7 +157,7 @@ const BillTotals = ({
           color="text-slate-900"
         />
 
-        {parseFloat(advance || 0) > 0 && (
+        {!hideAdvance && parseFloat(advance || 0) > 0 && (
           <Row
             label="Advance Paid"
             value={`− ${formatCurrency(parseFloat(advance))}`}

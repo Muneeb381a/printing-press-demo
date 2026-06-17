@@ -146,6 +146,56 @@ export const deleteMapping = (productId, inventoryItemId) =>
     [productId, inventoryItemId]
   );
 
+// ── Category → Inventory mappings ────────────────────────────
+
+export const getMappingsForCategory = (categoryId) =>
+  pool.query(
+    `SELECT cim.*, i.name AS item_name, i.unit, i.current_stock,
+            i.warning_threshold, i.critical_threshold
+     FROM   category_inventory_map cim
+     JOIN   inventory_items i ON i.id = cim.inventory_item_id
+     WHERE  cim.category_id = $1`,
+    [categoryId]
+  );
+
+export const getMappingsForCategories = (categoryIds) =>
+  pool.query(
+    `SELECT cim.*, i.name AS item_name, i.unit, i.current_stock,
+            i.warning_threshold, i.critical_threshold
+     FROM   category_inventory_map cim
+     JOIN   inventory_items i ON i.id = cim.inventory_item_id
+     WHERE  cim.category_id = ANY($1::int[])`,
+    [categoryIds]
+  );
+
+export const getCategoryMappingsForItem = (inventoryItemId) =>
+  pool.query(
+    `SELECT cim.*, c.name AS category_name
+     FROM   category_inventory_map cim
+     JOIN   categories c ON c.id = cim.category_id
+     WHERE  cim.inventory_item_id = $1
+     ORDER  BY c.name`,
+    [inventoryItemId]
+  );
+
+export const upsertCategoryMapping = (categoryId, inventoryItemId, { qtyPerUnit, useSqft }) =>
+  pool.query(
+    `INSERT INTO category_inventory_map (category_id, inventory_item_id, qty_per_unit, use_sqft)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (category_id, inventory_item_id)
+     DO UPDATE SET qty_per_unit = EXCLUDED.qty_per_unit, use_sqft = EXCLUDED.use_sqft
+     RETURNING *`,
+    [categoryId, inventoryItemId, qtyPerUnit ?? 1, useSqft ?? true]
+  );
+
+export const deleteCategoryMapping = (categoryId, inventoryItemId) =>
+  pool.query(
+    `DELETE FROM category_inventory_map
+     WHERE category_id = $1 AND inventory_item_id = $2
+     RETURNING id`,
+    [categoryId, inventoryItemId]
+  );
+
 // ── Dashboard: items below threshold ─────────────────────────
 
 export const getLowStockAlerts = () =>

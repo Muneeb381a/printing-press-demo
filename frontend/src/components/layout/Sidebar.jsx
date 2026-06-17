@@ -2,27 +2,30 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Package, FileText,
   BookOpen, BarChart2, Printer, Settings, Boxes, X, TrendingDown,
-  UserCheck, CalendarDays,
+  UserCheck, CalendarDays, Calculator, ListOrdered, ClipboardList, Banknote,
 } from 'lucide-react';
 import cn from '../../utils/cn.js';
 import { useLanguage } from '../../i18n/LanguageContext.jsx';
 
-const NAV_GROUPS = [
+const OWNER_NAV_GROUPS = [
   {
     key: 'nav_main',
     items: [
       { to: '/',          key: 'dashboard', icon: LayoutDashboard, end: true },
       { to: '/customers', key: 'customers', icon: Users },
       { to: '/products',  key: 'products',  icon: Package },
-      { to: '/bills',     key: 'bills',     icon: FileText },
+      { to: '/bills',      key: 'bills',      icon: FileText },
+      { to: '/calculator', key: 'calculator', icon: Calculator },
+      { to: '/rate-list',  key: 'rate_list',  icon: ListOrdered },
     ],
   },
   {
     key: 'nav_finance',
     items: [
-      { to: '/ledger',   key: 'ledger',   icon: BookOpen },
-      { to: '/reports',  key: 'reports',  icon: BarChart2 },
-      { to: '/expenses', key: 'expenses', icon: TrendingDown },
+      { to: '/daily-closing', key: 'daily_closing', icon: ClipboardList },
+      { to: '/ledger',        key: 'ledger',        icon: BookOpen },
+      { to: '/reports',       key: 'reports',       icon: BarChart2 },
+      { to: '/expenses',      key: 'expenses',      icon: TrendingDown },
     ],
   },
   {
@@ -30,6 +33,7 @@ const NAV_GROUPS = [
     items: [
       { to: '/employees',  key: 'employees',  icon: UserCheck },
       { to: '/attendance', key: 'attendance', icon: CalendarDays },
+      { to: '/payroll',    key: 'payroll',    icon: Banknote },
     ],
   },
   {
@@ -74,6 +78,7 @@ const NavItem = ({ to, icon: Icon, label, end, onClose }) => (
 
 const Sidebar = ({ open, onClose }) => {
   const { t } = useLanguage();
+  const navGroups = OWNER_NAV_GROUPS;
 
   return (
     <>
@@ -102,7 +107,7 @@ const Sidebar = ({ open, onClose }) => {
             </div>
             <div>
               <p className="text-white font-bold text-sm leading-none tracking-tight">Press ERP</p>
-              <p className="text-slate-500 text-xs mt-0.5">Management System</p>
+              <p className="text-slate-500 text-xs mt-0.5">Demo</p>
             </div>
           </div>
           <button
@@ -115,7 +120,7 @@ const Sidebar = ({ open, onClose }) => {
 
         {/* ── Navigation ── */}
         <nav className="flex-1 overflow-y-auto px-3 py-5 space-y-6">
-          {NAV_GROUPS.map((group) => (
+          {navGroups.map((group) => (
             <div key={group.key}>
               <p className="px-3 mb-2 text-xs font-semibold text-slate-600 uppercase tracking-widest">
                 {t(group.key)}

@@ -10,5 +10,7 @@ router.get('/monthly-sales',  asyncWrap(ctrl.getMonthlySales));
 router.get('/pending-orders', asyncWrap(ctrl.getPendingOrders));
 router.get('/top-products',   asyncWrap(ctrl.getTopProducts));
 router.get('/stock-alerts',   asyncWrap(ctrl.getStockAlerts));
+router.get('/revenue',        asyncWrap(ctrl.getRevenueSummary));
+router.get('/daily-closing',  asyncWrap(ctrl.getDailyClosing));
 
 export default router;

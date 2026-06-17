@@ -9,7 +9,7 @@ export const getAll = async (req, res) => {
   const { rows } = await Q.findAll({
     billId:     bill_id     ? Number(bill_id)     : null,
     customerId: customer_id ? Number(customer_id) : null,
-    limit:      Number(limit),
+    limit:      Math.min(Number(limit) || 50, 500),
     offset:     Number(offset),
   });
   res.json({ data: rows });

@@ -3,6 +3,9 @@
   "customers":         "Customers",
   "products":          "Categories",
   "bills":             "Bills",
+  "calculator":        "Quick Quote",
+  "rate_list":         "Rate List",
+  "daily_closing":     "Daily Closing",
   "ledger":            "Ledger",
   "reports":           "Reports",
   "inventory":         "Inventory",
@@ -14,6 +17,7 @@
   "nav_system":        "SYSTEM",
   "employees":         "Employees",
   "attendance":        "Attendance",
+  "payroll":           "Payroll",
 
   "new_bill":          "New Bill",
   "add_customer":      "Add Customer",
@@ -76,6 +80,7 @@
   "in_progress_label": "in progress",
 
   "expenses":          "Expenses",
+  "users":             "Employee Accounts",
 
   "search":            "Search…",
   "language":          "Language",

@@ -13,11 +13,10 @@ export const AuthProvider = ({ children }) => {
   });
 
   const isLoggedIn = !!token;
+  const role       = user?.role ?? null;
+  const isOwner    = role === 'owner';
+  const isEmployee = role === 'employee';
 
-  /**
-   * Calls POST /api/auth/login.
-   * Returns true on success, throws on failure so Login.jsx can show the error message.
-   */
   const login = useCallback(async (username, password) => {
     const res = await authApi.login(username, password);
     localStorage.setItem(TOKEN_KEY, res.token);
@@ -27,7 +26,8 @@ export const AuthProvider = ({ children }) => {
     return true;
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    try { await authApi.logout(); } catch { /* ignore — still clear locally */ }
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     setToken(null);
@@ -35,7 +35,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ isLoggedIn, user, login, logout }}>
+    <AuthContext.Provider value={{ isLoggedIn, user, token, role, isOwner, isEmployee, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

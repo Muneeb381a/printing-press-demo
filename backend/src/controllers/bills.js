@@ -54,8 +54,9 @@ export const getAll = async (req, res) => {
     customerId: customer_id ? Number(customer_id) : null,
     status:     status || null,
     search:     search.trim(),
-    limit:      Number(limit),
+    limit:      Math.min(Number(limit) || 50, 500),
     offset:     Number(offset),
+    createdBy:  req.user.role === 'employee' ? req.user.userId : null,
   });
   const total = rows[0] ? parseInt(rows[0].total_count, 10) : 0;
   res.json({ data: rows, count: rows.length, total });
@@ -64,6 +65,8 @@ export const getAll = async (req, res) => {
 export const getById = async (req, res, next) => {
   const result = await Q.findByIdWithItems(req.params.id);
   if (!result.bill) return next(createError(404, 'Bill not found'));
+  if (req.user.role === 'employee' && result.bill.created_by !== req.user.userId)
+    return next(createError(404, 'Bill not found'));
   res.json({ data: result });
 };
 
@@ -115,6 +118,8 @@ export const update = async (req, res, next) => {
 export const getInvoice = async (req, res, next) => {
   const result = await Q.findByIdWithItems(req.params.id);
   if (!result.bill) return next(createError(404, 'Bill not found'));
+  if (req.user.role === 'employee' && result.bill.created_by !== req.user.userId)
+    return next(createError(404, 'Bill not found'));
 
   const { bill, items, extraCharges, payments } = result;
   const totalPaid = payments.reduce((s, p) => s + parseFloat(p.amount), 0);
@@ -184,6 +189,7 @@ export const completeBill = async (req, res, next) => {
     discountValue = 0,
     advance       = 0,
     paymentMethod = 'cash',
+    priority      = 'normal',
     notes,
     dueDate,
     billDate,
@@ -193,8 +199,9 @@ export const completeBill = async (req, res, next) => {
   // Normalize custom bill number: trim + uppercase, treat blank as absent
   const customBillNumber = rawCustomBillNumber?.toString().trim().toUpperCase() || null;
 
-  if (!customerId)   return next(createError(400, 'customerId is required'));
-  if (!items.length) return next(createError(400, 'At least one item is required'));
+  if (!customerId)        return next(createError(400, 'customerId is required'));
+  if (!items.length)      return next(createError(400, 'At least one item is required'));
+  if (items.length > 200) return next(createError(400, 'Cannot add more than 200 items per bill'));
 
   const client = await pool.connect();
   try {
@@ -229,10 +236,11 @@ export const completeBill = async (req, res, next) => {
     });
 
     // ── Query 3: create bill shell ─────────────────────────────────
+    const safeP = ['urgent', 'normal', 'low'].includes(priority) ? priority : 'normal';
     const { rows: billRows } = await client.query(
-      `INSERT INTO bills (bill_number, customer_id, discount_type, discount_value, notes, due_date, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::date, NOW())) RETURNING *`,
-      [billNumber, customerId, discountType, discountValue, notes ?? null, dueDate ?? null, billDate ?? null]
+      `INSERT INTO bills (bill_number, customer_id, discount_type, discount_value, notes, due_date, created_at, priority, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::date, NOW()), $8, $9) RETURNING *`,
+      [billNumber, customerId, discountType, discountValue, notes ?? null, dueDate ?? null, billDate ?? null, safeP, req.user.userId ?? null]
     );
     const bill = billRows[0];
 
@@ -323,6 +331,15 @@ export const completeBill = async (req, res, next) => {
       );
     }
 
+    // Deduct inventory for all items (category + product mappings)
+    await invSvc.deductForBill(client, bill.id, insertedItems.map(it => ({
+      id:          it.id,
+      product_id:  it.product_id,
+      category_id: it.category_id,
+      quantity:    it.quantity,
+      sqft:        it.sqft,
+    })));
+
     await client.query('COMMIT');
 
     // Build response from memory — no post-COMMIT queries needed
@@ -352,6 +369,133 @@ export const completeBill = async (req, res, next) => {
   }
 };
 
+// ── Edit bill (full replace: items + charges + discount, keeps payments) ──
+export const editBill = async (req, res, next) => {
+  const billId = Number(req.params.id);
+  const {
+    customerId,
+    items        = [],
+    extraCharges = [],
+    discountType  = 'fixed',
+    discountValue = 0,
+    priority      = 'normal',
+    notes,
+    billDate,
+  } = req.body;
+
+  if (!customerId)   return next(createError(400, 'customerId is required'));
+  if (!items.length) return next(createError(400, 'At least one item is required'));
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: existing } = await Q.findById(billId);
+    if (!existing.length) throw createError(404, 'Bill not found');
+
+    // Reverse old inventory before deleting items
+    await invSvc.reverseForBill(client, billId);
+
+    // Delete old items and extra charges
+    await Promise.all([
+      client.query('DELETE FROM bill_items WHERE bill_id = $1', [billId]),
+      client.query('DELETE FROM bill_extra_charges WHERE bill_id = $1', [billId]),
+    ]);
+
+    // Update bill metadata (preserve bill_number and payments)
+    const safeP = ['urgent', 'normal', 'low'].includes(priority) ? priority : 'normal';
+    await client.query(
+      `UPDATE bills SET customer_id=$2, discount_type=$3, discount_value=$4, notes=$5, priority=$6,
+       created_at = COALESCE($7::date, created_at) WHERE id=$1`,
+      [billId, customerId, discountType, parseFloat(discountValue) || 0, notes ?? null, safeP, billDate ?? null]
+    );
+
+    // Insert new items (same batch logic as completeBill)
+    const resolvedItems = items.map((item, sortOrder) => {
+      const qty       = parseInt(item.quantity, 10) || 1;
+      const w         = parseFloat(item.width)  || 0;
+      const h         = parseFloat(item.height) || 0;
+      const sqft      = w && h ? parseFloat((w * h * qty).toFixed(3)) : null;
+      const itemTotal = parseFloat(item.amount  || 0);
+      const unitPrice = itemTotal / qty;
+      return { item, sqft, unitPrice, itemTotal, sortOrder };
+    });
+
+    const C = ITEM_COLS.length;
+    const itemPlaceholders = resolvedItems
+      .map((_, i) => `(${ITEM_COLS.map((__, c) => `$${i * C + c + 1}`).join(', ')})`)
+      .join(', ');
+    const itemParams = resolvedItems.flatMap(({ item, sqft, unitPrice, itemTotal, sortOrder }) => [
+      billId,
+      null,
+      item.categoryId ? Number(item.categoryId) : null,
+      item.description ?? null,
+      'custom',
+      item.width  != null ? parseFloat(item.width)  : null,
+      item.height != null ? parseFloat(item.height) : null,
+      sqft,
+      parseInt(item.quantity, 10) || 1,
+      unitPrice,
+      itemTotal,
+      parseFloat(item.designFee || 0),
+      parseFloat(item.urgentFee || 0),
+      item.notes ?? null,
+      sortOrder,
+    ]);
+
+    const ecParams = extraCharges.length
+      ? [billId, ...extraCharges.flatMap((ec) => [ec.label, parseFloat(ec.amount || 0)])]
+      : null;
+    const ecPlaceholders = extraCharges
+      .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
+      .join(', ');
+
+    const [{ rows: insertedItems }] = await Promise.all([
+      client.query(
+        `INSERT INTO bill_items (${ITEM_COLS.join(', ')}) VALUES ${itemPlaceholders} RETURNING *`,
+        itemParams
+      ),
+      ecParams
+        ? client.query(
+            `INSERT INTO bill_extra_charges (bill_id, label, amount) VALUES ${ecPlaceholders} RETURNING *`,
+            ecParams
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+
+    // Recalculate totals against existing payments (advance/payments are preserved)
+    await syncTotals(client, billId, { discountType, discountValue: parseFloat(discountValue) || 0 });
+
+    // Apply new inventory deductions
+    await invSvc.deductForBill(client, billId, insertedItems.map(it => ({
+      id:          it.id,
+      product_id:  it.product_id,
+      category_id: it.category_id,
+      quantity:    it.quantity,
+      sqft:        it.sqft,
+    })));
+
+    await client.query('COMMIT');
+
+    const result = await Q.findByIdWithItems(billId);
+    res.json({ data: result });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+export const updatePriority = async (req, res, next) => {
+  const { priority } = req.body;
+  const valid = ['urgent', 'normal', 'low'];
+  if (!valid.includes(priority)) return next(createError(400, `priority must be one of: ${valid.join(', ')}`));
+  const { rows } = await Q.updatePriority(req.params.id, priority);
+  if (!rows.length) return next(createError(404, 'Bill not found'));
+  res.json({ data: rows[0] });
+};
+
 export const updateStatus = async (req, res, next) => {
   const { status } = req.body;
   const valid = ['pending', 'in_progress', 'completed', 'delivered', 'cancelled'];
@@ -359,34 +503,17 @@ export const updateStatus = async (req, res, next) => {
 
   const billId = Number(req.params.id);
 
-  // Stock-impacting transitions need a transaction
-  if (status === 'in_progress' || status === 'cancelled') {
+  // Cancellation reverses stock (deduction now happens at bill creation)
+  if (status === 'cancelled') {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-
       const { rows: billRows } = await Q.findById(billId);
       if (!billRows.length) { await client.query('ROLLBACK'); return next(createError(404, 'Bill not found')); }
-
-      const prevStatus = billRows[0].status;
-
-      if (status === 'in_progress' && prevStatus === 'pending') {
-        // Deduct stock — fetch bill items first
-        const { rows: items } = await client.query(
-          `SELECT id, product_id, quantity, sqft FROM bill_items WHERE bill_id = $1`, [billId]
-        );
-        await invSvc.deductForBill(client, billId, items);
-      }
-
-      if (status === 'cancelled' && ['in_progress', 'completed'].includes(prevStatus)) {
-        // Reverse stock deductions
-        await invSvc.reverseForBill(client, billId);
-      }
-
+      await invSvc.reverseForBill(client, billId);
       const { rows } = await client.query(
-        `UPDATE bills SET status = $2 WHERE id = $1 RETURNING id, status`, [billId, status]
+        `UPDATE bills SET status = 'cancelled' WHERE id = $1 RETURNING id, status`, [billId]
       );
-
       await client.query('COMMIT');
       return res.json({ data: rows[0] });
     } catch (err) {
@@ -413,16 +540,28 @@ export const markDelivered = async (req, res, next) => {
   res.json({ data: rows[0] });
 };
 
+export const updateDesignStatus = async (req, res, next) => {
+  const { design_status, design_notes } = req.body;
+  const valid = ['pending', 'received', 'approved', 'printing'];
+  if (design_status && !valid.includes(design_status))
+    return next(createError(400, `design_status must be one of: ${valid.join(', ')}`));
+  const { rows } = await Q.updateDesignStatus(req.params.id, design_status, design_notes);
+  if (!rows.length) return next(createError(404, 'Bill not found'));
+  res.json({ data: rows[0] });
+};
+
 export const remove = async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows: bill } = await client.query('SELECT id FROM bills WHERE id=$1', [req.params.id]);
     if (!bill.length) { await client.query('ROLLBACK'); return next(createError(404, 'Bill not found')); }
-    await client.query('DELETE FROM payments    WHERE bill_id=$1', [req.params.id]);
+    // Reverse any stock deductions before deleting bill items
+    await invSvc.reverseForBill(client, Number(req.params.id));
+    await client.query('DELETE FROM payments          WHERE bill_id=$1', [req.params.id]);
     await client.query('DELETE FROM bill_extra_charges WHERE bill_id=$1', [req.params.id]);
-    await client.query('DELETE FROM bill_items  WHERE bill_id=$1', [req.params.id]);
-    await client.query('DELETE FROM bills       WHERE id=$1',      [req.params.id]);
+    await client.query('DELETE FROM bill_items        WHERE bill_id=$1', [req.params.id]);
+    await client.query('DELETE FROM bills             WHERE id=$1',      [req.params.id]);
     await client.query('COMMIT');
     res.json({ message: 'Bill deleted', id: Number(req.params.id) });
   } catch (err) {
@@ -437,10 +576,15 @@ export const remove = async (req, res, next) => {
 export const bulkDelete = async (req, res, next) => {
   const { ids } = req.body;
   if (!Array.isArray(ids) || !ids.length) return next(createError(400, 'ids must be a non-empty array'));
+  const billIds = [...new Set(ids.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+  if (billIds.length > 200) return next(createError(400, 'Cannot delete more than 200 bills at once'));
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const deleted = await Q.bulkDelete(client, ids);
+    // Reverse inventory stock for each bill before deleting
+    await Promise.all(billIds.map((id) => invSvc.reverseForBill(client, id)));
+    const deleted = await Q.bulkDelete(client, billIds);
     await client.query('COMMIT');
     res.json({ deleted: deleted.length, ids: deleted.map((r) => r.id) });
   } catch (err) {
@@ -664,6 +808,7 @@ export const bulkStatus = async (req, res, next) => {
   if (!valid.includes(status)) return next(createError(400, `Invalid status`));
   const billIds = [...new Set(ids.map(Number).filter((n) => Number.isInteger(n) && n > 0))];
   if (!billIds.length) return next(createError(400, 'No valid bill IDs provided'));
+  if (billIds.length > 200) return next(createError(400, 'Cannot update more than 200 bills at once'));
   const { rows } = await Q.bulkUpdateStatus(billIds, status);
   res.json({ data: rows, updated: rows.length });
 };

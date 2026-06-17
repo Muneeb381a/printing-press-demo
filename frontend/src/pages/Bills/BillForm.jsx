@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
@@ -9,7 +9,7 @@ import {
   Package, Layers, Maximize2, Receipt,
 } from 'lucide-react';
 import {
-  Input, Select, Textarea, Button, Card, PageHeader, Modal, CustomerCombobox,
+  Input, Select, Textarea, Button, Card, PageHeader, Modal, CustomerCombobox, PageSpinner,
 } from '../../components/ui/index.js';
 import { formatCurrency } from '../../utils/format.js';
 import * as custApi from '../../api/customers.js';
@@ -117,6 +117,7 @@ const PREDEFINED_CHARGES = [
 const newItem = () => ({
   id: crypto.randomUUID(),
   categoryId: '', catType: '', pricingMode: 'total',
+  countInSqft: true,
   description: '', width: '', height: '',
   quantity: 1, sqft: null,
   rate: '', designFee: 0, urgentFee: 0,
@@ -132,6 +133,8 @@ const BillNumberStatus = ({ status }) => {
 const BillForm = () => {
   const navigate = useNavigate();
   const qc       = useQueryClient();
+  const { id: editId } = useParams();
+  const isEdit = !!editId;
 
   const [items,            setItems]            = useState([newItem()]);
   const [extraCharges,     setExtraCharges]     = useState([]);
@@ -140,8 +143,10 @@ const BillForm = () => {
   const [isAutoDiscount,   setIsAutoDiscount]   = useState(false);
   const [advance,          setAdvance]          = useState('');
   const [payMethod,        setPayMethod]        = useState('cash');
+  const [priority,         setPriority]         = useState('normal');
   const [quickCatOpen,     setQuickCatOpen]     = useState(false);
   const [quickCatRowId,    setQuickCatRowId]    = useState(null);
+  const [editInitialized,  setEditInitialized]  = useState(false);
 
   // Custom bill number
   const [useCustomBillNo, setUseCustomBillNo] = useState(false);
@@ -175,6 +180,83 @@ const BillForm = () => {
     queryKey: ['customers'],
     queryFn:  () => custApi.getCustomers({ limit: 500 }),
   });
+
+  // Edit mode: fetch the existing bill and categories for pre-population
+  const { data: editBillData, isLoading: editBillLoading, isError: editBillError } = useQuery({
+    queryKey: ['bill', editId],
+    queryFn:  () => billApi.getBill(editId),
+    enabled:  isEdit,
+    retry:    false,
+  });
+
+  const { data: catListData } = useQuery({
+    queryKey: ['categories'],
+    queryFn:  catApi.getCategories,
+    enabled:  isEdit,
+    staleTime: Infinity,
+  });
+
+  // Pre-populate form state from fetched bill data (edit mode only)
+  useEffect(() => {
+    if (!isEdit || editInitialized || !editBillData?.data || !catListData?.data) return;
+
+    const { bill, items: dbItems, extraCharges: dbCharges } = editBillData.data;
+
+    const catMap = {};
+    (catListData.data || []).forEach((c) => { catMap[c.id] = c; });
+
+    const formItems = dbItems.map((dbItem) => {
+      const cat         = catMap[dbItem.category_id];
+      const catType     = TYPE_MAP[cat?.pricing_type] ?? 'fixed';
+      const pricingMode = cat?.pricing_mode ?? 'total';
+      const qty         = parseInt(dbItem.quantity, 10) || 1;
+      const sqft        = parseFloat(dbItem.sqft) || 0;
+      const itemTotal   = parseFloat(dbItem.item_total) || 0;
+
+      let rate;
+      if (catType === 'area' && sqft > 0) {
+        rate = String(parseFloat((itemTotal / sqft).toFixed(4)));
+      } else if (catType === 'quantity' && pricingMode === 'per_unit') {
+        rate = String(parseFloat(dbItem.unit_price) || 0);
+      } else {
+        rate = String(itemTotal);
+      }
+
+      return {
+        id:          crypto.randomUUID(),
+        categoryId:  String(dbItem.category_id || ''),
+        catType,
+        pricingMode,
+        countInSqft: cat?.count_in_sqft ?? true,
+        description: dbItem.description || '',
+        width:       dbItem.width  ? String(dbItem.width)  : '',
+        height:      dbItem.height ? String(dbItem.height) : '',
+        quantity:    qty,
+        sqft:        sqft || null,
+        rate,
+        designFee:   parseFloat(dbItem.design_fee) || 0,
+        urgentFee:   parseFloat(dbItem.urgent_fee) || 0,
+      };
+    });
+
+    setItems(formItems.length > 0 ? formItems : [newItem()]);
+    setExtraCharges(
+      dbCharges.map((ec) => ({
+        id:     crypto.randomUUID(),
+        label:  ec.label,
+        amount: String(parseFloat(ec.amount) || ''),
+      }))
+    );
+    setDiscountType(bill.discount_type || 'fixed');
+    setDiscountValue(parseFloat(bill.discount_value) > 0 ? String(bill.discount_value) : '');
+    setPriority(bill.priority || 'normal');
+
+    setValue('customerId', String(bill.customer_id));
+    setValue('notes',      bill.notes || '');
+    setValue('billDate',   bill.created_at ? bill.created_at.split('T')[0] : today);
+
+    setEditInitialized(true);
+  }, [isEdit, editBillData, catListData, editInitialized]); // eslint-disable-line
 
   const customers = (custData?.data || []).map((c) => ({
     value: String(c.id),
@@ -211,20 +293,20 @@ const BillForm = () => {
     toast.success(`"${category.name}" created and selected`);
   };
 
-  const updateItem   = (id, patch) => setItems((p) => p.map((it) => it.id === id ? { ...it, ...patch } : it));
-  const removeItem   = (id)        => setItems((p) => p.filter((it) => it.id !== id));
-  const addItem      = ()          => setItems((p) => [...p, newItem()]);
-
-  const duplicateItem = (id) => setItems((p) => {
+  const updateItem    = (id, patch) => setItems((p) => p.map((it) => it.id === id ? { ...it, ...patch } : it));
+  const removeItem    = (id)        => setItems((p) => p.filter((it) => it.id !== id));
+  const addItem       = ()          => setItems((p) => [...p, newItem()]);
+  const duplicateItem = (id)        => setItems((p) => {
     const idx = p.findIndex((it) => it.id === id);
     if (idx === -1) return p;
     const src  = p[idx];
-    const copy = { ...newItem(), categoryId: src.categoryId, catType: src.catType, pricingMode: src.pricingMode };
+    const copy = { ...newItem(), id: crypto.randomUUID(), categoryId: src.categoryId, catType: src.catType, pricingMode: src.pricingMode };
     const next = [...p];
     next.splice(idx + 1, 0, copy);
     return next;
   });
 
+  // ── Keyboard navigation across rows ──────────────────────────
   const itemCatRefs    = useRef(new Map());
   const pendingFocusId = useRef(null);
 
@@ -233,6 +315,7 @@ const BillForm = () => {
     return itemCatRefs.current.get(id);
   }, []);
 
+  // clean up refs for removed items
   useEffect(() => {
     const ids = new Set(items.map((it) => it.id));
     for (const id of [...itemCatRefs.current.keys()]) {
@@ -240,6 +323,7 @@ const BillForm = () => {
     }
   }, [items]);
 
+  // focus newly added row after render
   useEffect(() => {
     if (!pendingFocusId.current) return;
     const ref = itemCatRefs.current.get(pendingFocusId.current);
@@ -292,11 +376,11 @@ const BillForm = () => {
     () => items.reduce((s, it) => s + (parseInt(it.quantity, 10) || 0), 0),
     [items],
   );
-  // Total sqft counts only area-type rows
+  // Total sqft: only area-type rows WHERE count_in_sqft is true (flex/banners, not cards/stamps)
   const totalSqft = useMemo(
     () => parseFloat(
       items
-        .filter((it) => it.catType === 'area')
+        .filter((it) => it.catType === 'area' && it.countInSqft !== false)
         .reduce((s, it) => s + (Number(it.sqft) || 0), 0)
         .toFixed(3)
     ),
@@ -304,6 +388,12 @@ const BillForm = () => {
   );
   const totalBillAmount = useMemo(
     () => items.reduce((s, it) => s + rowFinal(it), 0),
+    [items],
+  );
+  const areaSubtotal = useMemo(
+    () => items
+      .filter((it) => it.catType === 'area' && it.countInSqft !== false)
+      .reduce((s, it) => s + rowFinal(it), 0),
     [items],
   );
 
@@ -320,12 +410,19 @@ const BillForm = () => {
   }, [subtotal, discountType, discountValue]);
 
   const grandTotal = Math.max(0, subtotal + extraTotal - discountAmount);
-  const remaining  = Math.max(0, grandTotal - parseFloat(advance || 0));
+
+  // In edit mode, show remaining against already-paid amount (not a new advance)
+  const totalAlreadyPaid = isEdit
+    ? (editBillData?.data?.payments || []).reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+    : 0;
+  const remaining = Math.max(0, grandTotal - (isEdit ? totalAlreadyPaid : parseFloat(advance || 0)));
 
   const selectedCustomer = (custData?.data || []).find((c) => String(c.id) === selectedCustomerId);
 
   // Auto-apply (or clear) customer discount whenever the selected customer changes
+  // Skip in edit mode — discount is pre-populated from the saved bill
   useEffect(() => {
+    if (isEdit) return;
     const pct = parseFloat(selectedCustomer?.discount_percentage || 0);
     const isRegular = selectedCustomer?.discount_type === 'regular' && pct > 0;
 
@@ -338,11 +435,11 @@ const BillForm = () => {
       setDiscountValue('');
       setIsAutoDiscount(false);
     }
-  }, [selectedCustomerId]); // eslint-disable-line
+  }, [selectedCustomerId, isEdit]); // eslint-disable-line
 
   // ── Validation ────────────────────────────────────────────────
   const validateItems = () => {
-    if (useCustomBillNo) {
+    if (!isEdit && useCustomBillNo) {
       const t = customBillNo.trim();
       if (!t)                          return 'Bill number cannot be empty';
       if (billNoStatus === 'taken')    return `Bill number "${t}" already exists`;
@@ -364,15 +461,14 @@ const BillForm = () => {
     mutationFn: (formData) => {
       const err = validateItems();
       if (err) throw new Error(err);
-      return billApi.completeBill({
+
+      const sharedPayload = {
         customerId:    Number(formData.customerId),
         notes:         formData.notes    || undefined,
         billDate:      formData.billDate || undefined,
-        billNumber:    useCustomBillNo ? customBillNo.trim().toUpperCase() : undefined,
+        priority,
         discountType,
         discountValue: parseFloat(discountValue || 0),
-        advance:       parseFloat(advance || 0),
-        paymentMethod: payMethod,
         items: items.map((it) => ({
           categoryId:  Number(it.categoryId),
           description: it.description || undefined,
@@ -387,26 +483,55 @@ const BillForm = () => {
           label:  ec.label,
           amount: parseFloat(ec.amount),
         })),
+      };
+
+      if (isEdit) {
+        return billApi.editBill(editId, sharedPayload);
+      }
+
+      return billApi.completeBill({
+        ...sharedPayload,
+        billNumber:    useCustomBillNo ? customBillNo.trim().toUpperCase() : undefined,
+        advance:       parseFloat(advance || 0),
+        paymentMethod: payMethod,
       });
     },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['bills'] });
       qc.invalidateQueries({ queryKey: ['dashboard-summary'] });
-      toast.success(`Bill ${res.data.bill.bill_number} created!`);
-      navigate(`/bills/${res.data.bill.id}`);
+      if (isEdit) {
+        qc.invalidateQueries({ queryKey: ['bill', editId] });
+        toast.success('Bill updated!');
+        navigate(`/bills/${editId}`);
+      } else {
+        toast.success(`Bill ${res.data.bill.bill_number} created!`);
+        navigate(`/bills/${res.data.bill.id}`);
+      }
     },
     onError: (err) => toast.error(err.response?.data?.error || err.message),
   });
 
   const isSaving = mutation.isPending;
 
+  // Show spinner while loading bill data for edit mode
+  if (isEdit && editBillLoading) return <PageSpinner />;
+  if (isEdit && editBillError) return (
+    <div className="text-center py-16 text-gray-400">
+      <p>Bill not found.</p>
+      <Button variant="ghost" className="mt-4" onClick={() => navigate('/bills')}>Go back</Button>
+    </div>
+  );
+  if (isEdit && !editInitialized) return <PageSpinner />;
+
+  const billNumber = editBillData?.data?.bill?.bill_number;
+
   return (
     <div className="max-w-[1400px] mx-auto">
       <PageHeader
-        title="New Bill"
-        subtitle="Enter dimensions → sqft is auto-calculated · set amount manually"
+        title={isEdit ? `Edit Bill${billNumber ? ` — ${billNumber}` : ''}` : 'New Bill'}
+        subtitle={isEdit ? 'Change items, charges, or discount — payments are preserved' : 'Enter dimensions → sqft is auto-calculated · set amount manually'}
         action={
-          <Button variant="ghost" size="sm" icon={<ArrowLeft size={15} />} onClick={() => navigate('/bills')}>
+          <Button variant="ghost" size="sm" icon={<ArrowLeft size={15} />} onClick={() => navigate(isEdit ? `/bills/${editId}` : '/bills')}>
             Back
           </Button>
         }
@@ -445,6 +570,33 @@ const BillForm = () => {
                 <Input label="Bill Date" type="date" {...register('billDate')} />
               </div>
 
+              {/* Priority selector */}
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2.5">Order Priority</p>
+                <div className="flex gap-2">
+                  {[
+                    { value: 'urgent', label: 'Urgent',  dot: 'bg-red-500',    cls: 'border-red-300   bg-red-50   text-red-700'   },
+                    { value: 'normal', label: 'Normal',  dot: 'bg-slate-400',  cls: 'border-slate-300 bg-slate-50 text-slate-600' },
+                    { value: 'low',    label: 'Low',     dot: 'bg-green-500',  cls: 'border-green-300 bg-green-50 text-green-700' },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setPriority(opt.value)}
+                      className={cn(
+                        'flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all cursor-pointer',
+                        priority === opt.value
+                          ? opt.cls + ' shadow-sm'
+                          : 'border-slate-200 bg-white text-slate-400 hover:border-slate-300'
+                      )}
+                    >
+                      <span className={cn('w-2 h-2 rounded-full shrink-0', priority === opt.value ? opt.dot : 'bg-slate-300')} />
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {selectedCustomer && (
                 <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-100 rounded-xl">
                   <div className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
@@ -460,8 +612,8 @@ const BillForm = () => {
                 </div>
               )}
 
-              {/* Custom bill number */}
-              <div className="mt-4 pt-4 border-t border-slate-100">
+              {/* Custom bill number — create mode only */}
+              {!isEdit && <div className="mt-4 pt-4 border-t border-slate-100">
                 <label className="flex items-center gap-2.5 cursor-pointer select-none w-fit group">
                   <div className="relative">
                     <input
@@ -519,7 +671,7 @@ const BillForm = () => {
                     </p>
                   </div>
                 )}
-              </div>
+              </div>}
 
               <Textarea
                 label="Notes (optional)"
@@ -752,7 +904,24 @@ const BillForm = () => {
                           <span className="text-emerald-400 font-medium">− {formatCurrency(discountAmount)}</span>
                         </div>
                       )}
-                      {parseFloat(advance || 0) > 0 && (
+                      {isEdit && totalAlreadyPaid > 0 && (
+                        <>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-slate-400">Already paid</span>
+                            <span className="text-emerald-400 font-medium">− {formatCurrency(totalAlreadyPaid)}</span>
+                          </div>
+                          <div className="flex justify-between text-xs border-t border-white/10 pt-1.5 mt-1">
+                            <span className="text-slate-300 font-semibold">Remaining</span>
+                            <span className={cn(
+                              'font-bold text-sm',
+                              remaining > 0 ? 'text-red-400' : 'text-emerald-400',
+                            )}>
+                              {remaining > 0 ? formatCurrency(remaining) : '✓ Fully Paid'}
+                            </span>
+                          </div>
+                        </>
+                      )}
+                      {!isEdit && parseFloat(advance || 0) > 0 && (
                         <>
                           <div className="flex justify-between text-xs">
                             <span className="text-slate-400">Advance paid</span>
@@ -796,7 +965,17 @@ const BillForm = () => {
                   onDiscountValueChange={(v) => { setDiscountValue(v); setIsAutoDiscount(false); }}
                   onAdvanceChange={setAdvance}
                   onPaymentMethodChange={setPayMethod}
+                  hideAdvance={isEdit}
+                  totalSqft={totalSqft}
+                  areaSubtotal={areaSubtotal}
                 />
+                {/* In edit mode: show existing payment summary */}
+                {isEdit && totalAlreadyPaid > 0 && (
+                  <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <span className="text-slate-500 font-medium">Already paid ({editBillData?.data?.payments?.length} payment{editBillData?.data?.payments?.length !== 1 ? 's' : ''})</span>
+                    <span className="font-bold text-emerald-600">{formatCurrency(totalAlreadyPaid)}</span>
+                  </div>
+                )}
               </Card>
 
               {/* Actions */}
@@ -806,15 +985,15 @@ const BillForm = () => {
                   size="lg"
                   icon={isSaving ? null : <Save size={16} />}
                   loading={isSaving}
-                  disabled={isSaving || (useCustomBillNo && billNoStatus === 'taken')}
+                  disabled={isSaving || (!isEdit && useCustomBillNo && billNoStatus === 'taken')}
                   className="w-full"
                 >
-                  {isSaving ? 'Saving Bill…' : 'Create Bill'}
+                  {isSaving ? (isEdit ? 'Updating…' : 'Saving Bill…') : (isEdit ? 'Update Bill' : 'Create Bill')}
                 </Button>
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => navigate('/bills')}
+                  onClick={() => navigate(isEdit ? `/bills/${editId}` : '/bills')}
                   className="w-full"
                   disabled={isSaving}
                 >
@@ -827,6 +1006,7 @@ const BillForm = () => {
 
         </div>
       </form>
+
 
       <Modal isOpen={quickCatOpen} onClose={() => { setQuickCatOpen(false); setQuickCatRowId(null); }} title="Add New Product" size="sm">
         {quickCatOpen && <QuickCategoryForm onSuccess={handleQuickCatCreated} />}

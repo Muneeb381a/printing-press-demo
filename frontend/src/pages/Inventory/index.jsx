@@ -4,10 +4,11 @@ import { useForm } from 'react-hook-form';
 import {
   Package, Plus, TrendingUp, TrendingDown, AlertTriangle,
   AlertCircle, CheckCircle, RefreshCw, Settings, X, ChevronRight,
-  Boxes,
+  Boxes, Link2, Trash2,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import * as invAPI from '../../api/inventory.js';
+import * as catAPI from '../../api/categories.js';
 import { formatDate } from '../../utils/format.js';
 import cn from '../../utils/cn.js';
 
@@ -249,6 +250,182 @@ const AddItemModal = ({ onClose }) => {
             {mutation.isPending ? 'Creating…' : 'Add to Inventory'}
           </button>
         </form>
+      </div>
+    </div>
+  );
+};
+
+// ── Category Links modal ──────────────────────────────────────
+const CategoryLinksModal = ({ item, onClose }) => {
+  const qc = useQueryClient();
+  const [selectedCatId,  setSelectedCatId]  = useState('');
+  const [qtyPerUnit,     setQtyPerUnit]     = useState('1');
+  const [useSqft,        setUseSqft]        = useState(true);
+
+  const { data: linksData, isLoading: loadingLinks } = useQuery({
+    queryKey: ['inv-cat-mappings', item.id],
+    queryFn:  () => invAPI.getItemCategoryMappings(item.id),
+  });
+
+  const { data: catsData } = useQuery({
+    queryKey: ['categories'],
+    queryFn:  catAPI.getCategories,
+  });
+
+  const links      = linksData?.data  || [];
+  const categories = catsData?.data   || [];
+
+  // Only show categories not already linked
+  const linkedCatIds = new Set(links.map(l => l.category_id));
+  const available    = categories.filter(c => !linkedCatIds.has(c.id));
+
+  const addMutation = useMutation({
+    mutationFn: () => invAPI.upsertCategoryMapping(selectedCatId, {
+      inventoryItemId: item.id,
+      qtyPerUnit: parseFloat(qtyPerUnit) || 1,
+      useSqft,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['inv-cat-mappings', item.id] });
+      toast.success('Category linked');
+      setSelectedCatId('');
+      setQtyPerUnit('1');
+      setUseSqft(true);
+    },
+    onError: (e) => toast.error(e?.response?.data?.error || 'Failed'),
+  });
+
+  const removeMutation = useMutation({
+    mutationFn: (catId) => invAPI.deleteCategoryMappingLink(catId, item.id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['inv-cat-mappings', item.id] });
+      toast.success('Link removed');
+    },
+    onError: (e) => toast.error(e?.response?.data?.error || 'Failed'),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] flex flex-col">
+
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5 shrink-0">
+          <div>
+            <h3 className="font-bold text-slate-900">Category Links</h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {item.name} · {item.unit} · auto-deduct on bill save
+            </p>
+          </div>
+          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Current links */}
+        <div className="overflow-y-auto flex-1 -mx-6 px-6 space-y-2 mb-5">
+          {loadingLinks ? (
+            [...Array(3)].map((_, i) => <div key={i} className="h-12 bg-slate-100 rounded-xl animate-pulse" />)
+          ) : links.length === 0 ? (
+            <div className="text-center py-8">
+              <Link2 size={22} className="text-slate-200 mx-auto mb-2" />
+              <p className="text-sm text-slate-400">No categories linked yet</p>
+              <p className="text-xs text-slate-300 mt-1">Link a category below to enable auto-deduction</p>
+            </div>
+          ) : links.map(link => (
+            <div key={link.id} className="flex items-center gap-3 px-3.5 py-3 bg-slate-50 border border-slate-100 rounded-xl">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-slate-800">{link.category_name}</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {link.use_sqft
+                    ? `Deducts sqft × ${link.qty_per_unit}`
+                    : `Deducts qty × ${link.qty_per_unit}`}
+                </p>
+              </div>
+              <span className={cn(
+                'text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0',
+                link.use_sqft
+                  ? 'bg-brand-50 text-brand-700 border-brand-100'
+                  : 'bg-slate-100 text-slate-600 border-slate-200'
+              )}>
+                {link.use_sqft ? 'SQFT' : 'QTY'}
+              </span>
+              <button
+                onClick={() => removeMutation.mutate(link.category_id)}
+                disabled={removeMutation.isPending}
+                className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer shrink-0"
+                title="Remove link"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Add new link */}
+        <div className="shrink-0 border-t border-slate-100 pt-4">
+          <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Link a Category</p>
+
+          {available.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-3">All categories already linked</p>
+          ) : (
+            <div className="space-y-3">
+              <select
+                value={selectedCatId}
+                onChange={e => setSelectedCatId(e.target.value)}
+                className="w-full px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white cursor-pointer"
+              >
+                <option value="">Select category…</option>
+                {available.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Qty / unit</label>
+                  <input
+                    type="number" step="any" min="0.0001"
+                    value={qtyPerUnit}
+                    onChange={e => setQtyPerUnit(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    placeholder="1"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1">Deduct by</label>
+                  <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setUseSqft(true)}
+                      className={cn(
+                        'px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer',
+                        useSqft ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
+                      )}
+                    >
+                      SqFt
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setUseSqft(false)}
+                      className={cn(
+                        'px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer',
+                        !useSqft ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'
+                      )}
+                    >
+                      Qty
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => { if (!selectedCatId) return; addMutation.mutate(); }}
+                disabled={!selectedCatId || addMutation.isPending}
+                className="w-full py-2.5 bg-brand-600 text-white text-sm font-bold rounded-xl hover:bg-brand-700 active:bg-brand-800 disabled:opacity-50 transition-colors cursor-pointer"
+              >
+                {addMutation.isPending ? 'Linking…' : 'Add Link'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -508,6 +685,13 @@ const Inventory = () => {
                         <Settings size={15} />
                       </button>
                       <button
+                        onClick={() => setModal({ type: 'links', item })}
+                        title="Link to categories"
+                        className="p-2 text-violet-600 hover:bg-violet-50 rounded-xl transition-colors cursor-pointer"
+                      >
+                        <Link2 size={15} />
+                      </button>
+                      <button
                         onClick={() => setModal({ type: 'movements', item })}
                         title="View movement history"
                         className="p-2 text-brand-600 hover:bg-brand-50 rounded-xl transition-colors cursor-pointer"
@@ -529,6 +713,9 @@ const Inventory = () => {
       )}
       {(modal?.type === 'restock' || modal?.type === 'adjust') && (
         <StockModal item={modal.item} mode={modal.type} onClose={() => setModal(null)} />
+      )}
+      {modal?.type === 'links' && (
+        <CategoryLinksModal item={modal.item} onClose={() => setModal(null)} />
       )}
       {modal?.type === 'movements' && (
         <MovementsPanel item={modal.item} onClose={() => setModal(null)} />

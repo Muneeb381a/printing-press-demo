@@ -6,5 +6,7 @@ export const getMonthlySales  = (months = 12)     => client.get('/dashboard/mont
 export const getPendingOrders = (limit = 20)      => client.get('/dashboard/pending-orders', { params: { limit } });
 export const getTopProducts   = (limit = 10)      => client.get('/dashboard/top-products',   { params: { limit } });
 export const getStockAlerts   = ()                => client.get('/dashboard/stock-alerts');
+export const getDailyClosing    = (date)            => client.get('/dashboard/daily-closing',  { params: date ? { date } : {} });
+export const getRevenueSummary  = (from, to)        => client.get('/dashboard/revenue',        { params: { from, to } });
 export const getLedger        = (params)          => client.get('/ledger', { params });
 export const getCustomerLedger = (customerId)     => client.get(`/ledger/${customerId}`);

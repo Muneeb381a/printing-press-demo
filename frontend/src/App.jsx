@@ -17,6 +17,11 @@ import CustomerLedger from './pages/Customers/CustomerLedger.jsx';
 import Expenses       from './pages/Expenses/index.jsx';
 import Employees      from './pages/Employees/index.jsx';
 import Attendance     from './pages/Attendance/index.jsx';
+import Payroll        from './pages/Payroll/index.jsx';
+import QuickQuote     from './pages/Calculator/index.jsx';
+import RateList       from './pages/RateList/index.jsx';
+import RateListPrint  from './pages/RateList/PrintView.jsx';
+import DailyClosing   from './pages/DailyClosing/index.jsx';
 import NotFound       from './pages/NotFound.jsx';
 import DemoExpired    from './pages/DemoExpired.jsx';
 
@@ -30,26 +35,32 @@ const router = createBrowserRouter([
       {
         element: <AppLayout />,
         children: [
-          { index: true,                       element: <Dashboard /> },
-          { path: 'customers',                 element: <Customers /> },
-          { path: 'products',                  element: <Products /> },
-          { path: 'bills',                     element: <Bills /> },
-          { path: 'bills/new',                 element: <BillForm /> },
-          { path: 'bills/:id',                 element: <BillDetail /> },
-          { path: 'ledger',                    element: <Ledger /> },
-          { path: 'reports',                   element: <Reports /> },
-          { path: 'settings',                  element: <Settings /> },
-          { path: 'inventory',                 element: <Inventory /> },
-          { path: 'customers/:id/ledger',      element: <CustomerLedger /> },
-          { path: 'expenses',                  element: <Expenses /> },
-          { path: 'employees',                 element: <Employees /> },
-          { path: 'attendance',                element: <Attendance /> },
+          { index: true,                      element: <Dashboard /> },
+          { path: 'customers',                element: <Customers /> },
+          { path: 'customers/:id/ledger',     element: <CustomerLedger /> },
+          { path: 'products',                 element: <Products /> },
+          { path: 'bills',                    element: <Bills /> },
+          { path: 'bills/new',                element: <BillForm /> },
+          { path: 'bills/:id/edit',           element: <BillForm /> },
+          { path: 'bills/:id',                element: <BillDetail /> },
+          { path: 'ledger',                   element: <Ledger /> },
+          { path: 'reports',                  element: <Reports /> },
+          { path: 'settings',                 element: <Settings /> },
+          { path: 'inventory',                element: <Inventory /> },
+          { path: 'expenses',                 element: <Expenses /> },
+          { path: 'employees',                element: <Employees /> },
+          { path: 'attendance',               element: <Attendance /> },
+          { path: 'payroll',                  element: <Payroll /> },
+          { path: 'calculator',               element: <QuickQuote /> },
+          { path: 'rate-list',                element: <RateList /> },
+          { path: 'daily-closing',            element: <DailyClosing /> },
         ],
       },
     ],
   },
 
   { path: 'bills/:id/print', element: <PrintInvoice /> },
+  { path: 'rate-list/print', element: <RateListPrint /> },
   { path: 'demo-expired',    element: <DemoExpired /> },
   { path: '*',               element: <NotFound /> },
 ]);

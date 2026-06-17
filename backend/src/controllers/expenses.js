@@ -1,9 +1,16 @@
 import * as Q from '../db/queries/expenses.js';
 import { createError } from '../middleware/errorHandler.js';
 
+const VALID_TYPES = ['IN', 'OUT'];
+
 export const getAll = async (req, res) => {
-  const { category, from, to, search = '', limit = 100, offset = 0 } = req.query;
-  const { rows } = await Q.findAll({ category, from, to, search, limit: Number(limit), offset: Number(offset) });
+  const { type, category, from, to, search = '', limit = 200, offset = 0 } = req.query;
+  const { rows } = await Q.findAll({
+    type:     VALID_TYPES.includes(type) ? type : null,
+    category, from, to, search,
+    limit:  Math.min(Number(limit) || 200, 1000),
+    offset: Number(offset),
+  });
   const total = rows.length > 0 ? parseInt(rows[0].total_count, 10) : 0;
   res.json({ data: rows, count: rows.length, total });
 };
@@ -15,22 +22,35 @@ export const getOne = async (req, res, next) => {
 };
 
 export const create = async (req, res, next) => {
-  const { title, amount, category, paymentMethod, expenseDate, notes } = req.body;
-  if (!title || amount == null) return next(createError(400, 'title and amount are required'));
-  if (isNaN(Number(amount)) || Number(amount) < 0) return next(createError(400, 'amount must be a non-negative number'));
-  const { rows } = await Q.create({ title, amount: Number(amount), category, paymentMethod, expenseDate, notes });
+  const { title, amount, type = 'OUT', category, paymentMethod, expenseDate, notes } = req.body;
+  if (!title?.trim()) return next(createError(400, 'title is required'));
+  if (amount == null || isNaN(Number(amount)) || Number(amount) < 0)
+    return next(createError(400, 'amount must be a non-negative number'));
+  if (!VALID_TYPES.includes(type))
+    return next(createError(400, 'type must be IN or OUT'));
+
+  const { rows } = await Q.create({
+    title: title.trim(), amount: Number(amount), type,
+    category, paymentMethod, expenseDate, notes,
+  });
   res.status(201).json({ data: rows[0] });
 };
 
 export const update = async (req, res, next) => {
   const { rows: existing } = await Q.findById(req.params.id);
   if (!existing.length) return next(createError(404, 'Expense not found'));
-  const { title, amount, category, paymentMethod, expenseDate, notes } = req.body;
-  if (amount != null && (isNaN(Number(amount)) || Number(amount) < 0)) {
+
+  const { title, amount, type, category, paymentMethod, expenseDate, notes } = req.body;
+  if (amount != null && (isNaN(Number(amount)) || Number(amount) < 0))
     return next(createError(400, 'amount must be a non-negative number'));
-  }
+  if (type != null && !VALID_TYPES.includes(type))
+    return next(createError(400, 'type must be IN or OUT'));
+
   const { rows } = await Q.update(req.params.id, {
-    title, amount: amount != null ? Number(amount) : undefined, category, paymentMethod, expenseDate, notes,
+    title,
+    amount:        amount != null ? Number(amount) : undefined,
+    type:          type   || undefined,
+    category, paymentMethod, expenseDate, notes,
   });
   res.json({ data: rows[0] });
 };

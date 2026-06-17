@@ -3,7 +3,7 @@ import { createError } from '../middleware/errorHandler.js';
 
 export const getAll = async (req, res) => {
   const { search = '', limit = 50, offset = 0 } = req.query;
-  const { rows } = await Q.findAll({ search, limit: Number(limit), offset: Number(offset) });
+  const { rows } = await Q.findAll({ search, limit: Math.min(Number(limit) || 50, 500), offset: Number(offset) });
   res.json({ data: rows, count: rows.length });
 };
 
@@ -38,6 +38,14 @@ export const remove = async (req, res, next) => {
   const { rows } = await Q.remove(req.params.id);
   if (!rows.length) return next(createError(404, 'Customer not found'));
   res.json({ message: 'Customer deleted', id: rows[0].id });
+};
+
+export const bulkRemove = async (req, res, next) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0)
+    return next(createError(400, 'ids array required'));
+  const { rows } = await Q.bulkRemove(ids.map(Number));
+  res.json({ message: `${rows.length} customer(s) deleted`, ids: rows.map((r) => r.id) });
 };
 
 export const getLedger = async (req, res, next) => {

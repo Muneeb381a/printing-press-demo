@@ -6,11 +6,22 @@ import toast from 'react-hot-toast';
 import {
   ArrowLeft, AlertTriangle, CheckCircle, Clock, CreditCard,
   ChevronDown, ChevronUp, Plus, ExternalLink, Calendar,
-  Phone, MapPin, TrendingDown,
+  Phone, MapPin, TrendingDown, MessageCircle,
 } from 'lucide-react';
 import { StatusBadge } from '../../components/ui/Badge.jsx';
 import { formatCurrency, formatDate } from '../../utils/format.js';
 import * as ledgerAPI from '../../api/ledger.js';
+
+const toWaPhone = (phone) => {
+  if (!phone) return null;
+  const d = phone.replace(/\D/g, '');
+  if (d.startsWith('92')) return d;
+  if (d.startsWith('0'))  return '92' + d.slice(1);
+  return d.length >= 10 ? '92' + d : null;
+};
+
+const buildReminderMsg = (name, balance, shopName) =>
+  `السلام علیکم *${name}* صاحب! 🙏\nآپ کے ذمہ *Rs ${Number(balance).toLocaleString()}* بقایا ہیں۔\nبراہ کرم جلد ادائیگی کا بندوبست فرمائیں۔\nشکریہ 🙏\n*${shopName || 'Print Shop'}*`;
 
 // ─────────────────────────────────────────────────────────────
 // Sub-components
@@ -410,13 +421,25 @@ const CustomerLedger = () => {
             </span>
           </div>
         </div>
-        <Link
-          to={`/bills/new`}
-          state={{ customerId: customer.id }}
-          className="flex items-center gap-2 bg-indigo-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition-colors"
-        >
-          <Plus size={14} /> New Bill
-        </Link>
+        <div className="flex items-center gap-2">
+          {outstanding > 0 && toWaPhone(customer.phone) && (
+            <a
+              href={`https://wa.me/${toWaPhone(customer.phone)}?text=${encodeURIComponent(buildReminderMsg(customer.name, outstanding, qc.getQueryData(['shop-settings'])?.shop_name))}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-sm font-semibold text-[#25D366] bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/30 px-4 py-2.5 rounded-xl transition-colors"
+            >
+              <MessageCircle size={14} /> Remind
+            </a>
+          )}
+          <Link
+            to={`/bills/new`}
+            state={{ customerId: customer.id }}
+            className="flex items-center gap-2 bg-indigo-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-indigo-700 transition-colors"
+          >
+            <Plus size={14} /> New Bill
+          </Link>
+        </div>
       </div>
 
       {/* ── Overdue alert banner ── */}

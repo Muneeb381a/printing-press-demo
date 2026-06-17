@@ -1,15 +1,26 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useNavigate, Link } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Search, Calendar, AlertTriangle, ChevronRight,
-  TrendingDown, FileText,
+  TrendingDown, FileText, MessageCircle, ExternalLink,
 } from 'lucide-react';
 import { StatusBadge } from '../../components/ui/Badge.jsx';
 import { Modal, PageHeader } from '../../components/ui/index.js';
 import { formatCurrency, formatDate } from '../../utils/format.js';
 import * as api from '../../api/dashboard.js';
 import cn from '../../utils/cn.js';
+
+const toWaPhone = (phone) => {
+  if (!phone) return null;
+  const d = phone.replace(/\D/g, '');
+  if (d.startsWith('92')) return d;
+  if (d.startsWith('0'))  return '92' + d.slice(1);
+  return d.length >= 10 ? '92' + d : null;
+};
+
+const buildReminderMsg = (name, balance, shopName) =>
+  `السلام علیکم *${name}* صاحب! 🙏\nآپ کے ذمہ *Rs ${Number(balance).toLocaleString()}* بقایا ہیں۔\nبراہ کرم جلد ادائیگی کا بندوبست فرمائیں۔\nشکریہ 🙏\n*${shopName || 'Print Shop'}*`;
 
 // ── Payment status pill ───────────────────────────────────────
 const PAYMENT_STATUS = {
@@ -109,6 +120,17 @@ const CustomerBillsModal = ({ customer, onClose }) => {
 
   return (
     <Modal isOpen={!!customer} onClose={onClose} title={customer.customer_name} size="xl">
+      {/* Full khata link */}
+      <div className="flex justify-end -mt-1 mb-3">
+        <Link
+          to={`/customers/${customer.customer_id}/ledger`}
+          onClick={onClose}
+          className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600 hover:text-brand-800 transition-colors"
+        >
+          Full Khata <ExternalLink size={10} />
+        </Link>
+      </div>
+
       {/* Mini summary strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
         {[
@@ -216,6 +238,9 @@ const CustomerBillsModal = ({ customer, onClose }) => {
 
 // ─────────────────────────────────────────────────────────────
 const Ledger = () => {
+  const qc = useQueryClient();
+  const shop = qc.getQueryData(['shop-settings']);
+
   const [search,           setSearch]           = useState('');
   const [statusFilter,     setStatusFilter]     = useState('');
   const [from,             setFrom]             = useState('');
@@ -437,14 +462,24 @@ const Ledger = () => {
                       )}
                     </div>
 
-                    {/* View Bills button */}
-                    <div className="md:col-span-2 flex items-center justify-end">
+                    {/* Actions */}
+                    <div className="md:col-span-2 flex flex-col items-end gap-1.5">
                       <button
                         onClick={() => setSelectedCustomer(cust)}
                         className="flex items-center gap-1.5 text-xs font-semibold text-brand-600 bg-brand-50 hover:bg-brand-100 px-3 py-1.5 rounded-lg transition-colors"
                       >
-                        View Bills <ChevronRight size={12} />
+                        Bills <ChevronRight size={12} />
                       </button>
+                      {hasBalance && toWaPhone(cust.phone) && (
+                        <a
+                          href={`https://wa.me/${toWaPhone(cust.phone)}?text=${encodeURIComponent(buildReminderMsg(cust.customer_name, cust.total_remaining, shop?.shop_name))}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-xs font-semibold text-[#25D366] bg-[#25D366]/10 hover:bg-[#25D366]/20 px-3 py-1.5 rounded-lg transition-colors"
+                        >
+                          <MessageCircle size={12} /> Remind
+                        </a>
+                      )}
                     </div>
                   </div>
                 );

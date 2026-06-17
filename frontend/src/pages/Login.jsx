@@ -7,11 +7,11 @@ const Login = () => {
   const { login, isLoggedIn } = useAuth();
   const navigate = useNavigate();
 
-  const [username, setUsername]   = useState('');
-  const [password, setPassword]   = useState('');
-  const [showPass, setShowPass]   = useState(false);
-  const [error,    setError]      = useState('');
-  const [loading,  setLoading]    = useState(false);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPass, setShowPass] = useState(false);
+  const [error,    setError]    = useState('');
+  const [loading,  setLoading]  = useState(false);
 
   if (isLoggedIn) return <Navigate to="/" replace />;
 
@@ -74,7 +74,7 @@ const Login = () => {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="admin"
+                placeholder="owner / employee username"
                 autoComplete="username"
                 autoFocus
                 required

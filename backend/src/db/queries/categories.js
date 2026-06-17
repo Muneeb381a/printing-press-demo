@@ -3,7 +3,7 @@ import pool from '../../config/db.js';
 export const findAll = () =>
   pool.query(
     `SELECT c.id, c.name, c.slug, c.description, c.pricing_type, c.pricing_mode, c.rate, c.unit,
-            c.min_sqft, c.is_active, c.sort_order, c.created_at,
+            c.min_sqft, c.is_active, c.sort_order, c.created_at, c.count_in_sqft,
             COALESCE(
               json_agg(
                 jsonb_build_object('id', qt.id, 'min_qty', qt.min_qty, 'max_qty', qt.max_qty, 'price', qt.price::text)
@@ -21,7 +21,7 @@ export const findAll = () =>
 export const findAllAdmin = () =>
   pool.query(
     `SELECT c.id, c.name, c.slug, c.description, c.pricing_type, c.pricing_mode, c.rate, c.unit,
-            c.min_sqft, c.is_active, c.sort_order, c.created_at,
+            c.min_sqft, c.is_active, c.sort_order, c.created_at, c.count_in_sqft,
             COALESCE(
               json_agg(
                 jsonb_build_object('id', qt.id, 'min_qty', qt.min_qty, 'max_qty', qt.max_qty, 'price', qt.price::text)
@@ -38,7 +38,7 @@ export const findAllAdmin = () =>
 export const findById = (id) =>
   pool.query(
     `SELECT c.id, c.name, c.slug, c.description, c.pricing_type, c.pricing_mode, c.rate, c.unit,
-            c.min_sqft, c.is_active, c.sort_order, c.created_at,
+            c.min_sqft, c.is_active, c.sort_order, c.created_at, c.count_in_sqft,
             COALESCE(
               json_agg(
                 jsonb_build_object('id', qt.id, 'min_qty', qt.min_qty, 'max_qty', qt.max_qty, 'price', qt.price::text)
@@ -56,30 +56,31 @@ export const findById = (id) =>
 export const findBySlug = (slug) =>
   pool.query(`SELECT * FROM categories WHERE slug = $1`, [slug]);
 
-export const create = ({ name, slug, description = null, pricingType = 'area_based', pricingMode = 'total', rate = null, unit = 'sqft', minSqft = 1, sortOrder = 0 }) =>
+export const create = ({ name, slug, description = null, pricingType = 'area_based', pricingMode = 'total', rate = null, unit = 'sqft', minSqft = 1, sortOrder = 0, countInSqft = true }) =>
   pool.query(
-    `INSERT INTO categories (name, slug, description, pricing_type, pricing_mode, rate, unit, min_sqft, sort_order)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `INSERT INTO categories (name, slug, description, pricing_type, pricing_mode, rate, unit, min_sqft, sort_order, count_in_sqft)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      RETURNING *`,
-    [name, slug, description, pricingType, pricingMode, rate, unit, minSqft, sortOrder]
+    [name, slug, description, pricingType, pricingMode, rate, unit, minSqft, sortOrder, countInSqft]
   );
 
-export const update = (id, { name, slug, description, isActive, pricingType, pricingMode, rate, unit, minSqft, sortOrder }) =>
+export const update = (id, { name, slug, description, isActive, pricingType, pricingMode, rate, unit, minSqft, sortOrder, countInSqft }) =>
   pool.query(
     `UPDATE categories
-     SET    name         = COALESCE($2, name),
-            slug         = COALESCE($3, slug),
-            description  = COALESCE($4, description),
-            is_active    = COALESCE($5, is_active),
-            pricing_type = COALESCE($6, pricing_type),
-            pricing_mode = COALESCE($7, pricing_mode),
-            rate         = COALESCE($8, rate),
-            unit         = COALESCE($9, unit),
-            min_sqft     = COALESCE($10, min_sqft),
-            sort_order   = COALESCE($11, sort_order)
+     SET    name           = COALESCE($2, name),
+            slug           = COALESCE($3, slug),
+            description    = COALESCE($4, description),
+            is_active      = COALESCE($5, is_active),
+            pricing_type   = COALESCE($6, pricing_type),
+            pricing_mode   = COALESCE($7, pricing_mode),
+            rate           = COALESCE($8, rate),
+            unit           = COALESCE($9, unit),
+            min_sqft       = COALESCE($10, min_sqft),
+            sort_order     = COALESCE($11, sort_order),
+            count_in_sqft  = COALESCE($12, count_in_sqft)
      WHERE  id = $1
      RETURNING *`,
-    [id, name, slug, description, isActive, pricingType, pricingMode, rate, unit, minSqft, sortOrder]
+    [id, name, slug, description, isActive, pricingType, pricingMode, rate, unit, minSqft, sortOrder, countInSqft ?? null]
   );
 
 export const remove = (id) =>

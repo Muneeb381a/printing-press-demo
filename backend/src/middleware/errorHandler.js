@@ -1,19 +1,32 @@
+// PostgreSQL error codes → safe user-facing messages (never expose raw PG errors)
+const PG_MESSAGES = {
+  '23505': { status: 409, message: 'A record with this value already exists.' },
+  '23503': { status: 409, message: 'This record is linked to other data and cannot be deleted.' },
+  '23502': { status: 400, message: 'A required field is missing.' },
+  '22001': { status: 400, message: 'A value exceeds the maximum allowed length.' },
+  '22P02': { status: 400, message: 'Invalid input format.' },
+};
+
 /**
  * Central error handler — last middleware in the chain.
- * Distinguishes operational errors (4xx) from unexpected crashes (5xx).
+ * Never leaks stack traces or raw DB errors to the client.
  */
 export const errorHandler = (err, _req, res, _next) => {
-  const status  = err.status || err.statusCode || 500;
-  const message = err.message || 'Internal server error';
+  const status = err.status || err.statusCode || 500;
+  console.error(`[Error] ${status} — ${err.message}`, err.stack ?? '');
 
-  if (process.env.NODE_ENV !== 'production') {
-    console.error(`[Error] ${status} — ${message}`, err.stack ?? '');
+  // PostgreSQL errors → friendly message
+  if (err.code && PG_MESSAGES[err.code]) {
+    const pg = PG_MESSAGES[err.code];
+    return res.status(pg.status).json({ error: pg.message });
   }
 
-  res.status(status).json({
-    error:   message,
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
-  });
+  // 4xx → our own operational message; 5xx → generic (never leak internals)
+  const message = status < 500
+    ? (err.message || 'Bad request')
+    : 'An unexpected error occurred. Please try again.';
+
+  res.status(status).json({ error: message });
 };
 
 /**

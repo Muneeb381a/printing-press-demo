@@ -18,18 +18,21 @@ import inventoryRoutes  from './routes/inventory.js';
 import expenseRoutes    from './routes/expenses.js';
 import employeeRoutes   from './routes/employees.js';
 import attendanceRoutes from './routes/attendance.js';
+import payrollRoutes    from './routes/payroll.js';
+import rateListRoutes   from './routes/rateList.js';
 import authRoutes       from './routes/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth }  from './middleware/requireAuth.js';
+import { requireRole }  from './middleware/requireRole.js';
 import { demoGuard }    from './middleware/demoGuard.js';
+
+const ownerOnly = requireRole('owner');
 
 const app = express();
 
 // ── Security & Parsing ────────────────────────────────────────
 app.use(helmet());
 
-// CORS_ORIGIN supports a comma-separated list for multiple origins.
-// e.g. "https://my-app.vercel.app,http://localhost:5173"
 const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
   .split(',')
   .map((o) => o.trim());
@@ -38,15 +41,14 @@ app.use(cors({
   origin: (origin, cb) => {
     if (!origin) return cb(null, true);
     if (allowedOrigins.includes(origin)) return cb(null, true);
-    // Allow all Vercel preview deployments for this project
     if (/^https:\/\/printing-press-demo[a-z0-9-]*\.vercel\.app$/.test(origin)) return cb(null, true);
     cb(new Error(`CORS: origin ${origin} not allowed`));
   },
   credentials: true,
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '500kb' }));
+app.use(express.urlencoded({ extended: true, limit: '500kb' }));
 
 // ── Logging ───────────────────────────────────────────────────
 if (process.env.NODE_ENV !== 'test') {
@@ -62,22 +64,26 @@ app.use('/api', demoGuard);
 // ── Auth routes (public — no token required) ──────────────────
 app.use('/api/auth', authRoutes);
 
-// ── Protected API Routes (token required on every request) ────
-app.use('/api/customers',  requireAuth, customerRoutes);
+// ── Protected API Routes ──────────────────────────────────────
+app.use('/api/customers',     requireAuth, customerRoutes);
 app.use('/api/categories',    requireAuth, categoryRoutes);
 app.use('/api/subcategories', requireAuth, subcategoryRoutes);
-app.use('/api/products',   requireAuth, productRoutes);
-app.use('/api/bills',      requireAuth, billRoutes);
-app.use('/api/payments',   requireAuth, paymentRoutes);
-app.use('/api/dashboard',  requireAuth, dashboardRoutes);
-app.use('/api/ledger',     requireAuth, ledgerRoutes);
-app.use('/api/pricing',    requireAuth, pricingRoutes);
-app.use('/api/reports',    requireAuth, reportRoutes);
-app.use('/api/settings',   requireAuth, settingsRoutes);
-app.use('/api/inventory',  requireAuth, inventoryRoutes);
-app.use('/api/expenses',   requireAuth, expenseRoutes);
-app.use('/api/employees',  requireAuth, employeeRoutes);
-app.use('/api/attendance', requireAuth, attendanceRoutes);
+app.use('/api/products',      requireAuth, productRoutes);
+app.use('/api/bills',         requireAuth, billRoutes);
+app.use('/api/attendance',    requireAuth, attendanceRoutes);
+app.use('/api/settings',      requireAuth, settingsRoutes);
+
+// Owner-only routes
+app.use('/api/payments',      requireAuth, ownerOnly, paymentRoutes);
+app.use('/api/dashboard',     requireAuth, ownerOnly, dashboardRoutes);
+app.use('/api/ledger',        requireAuth, ownerOnly, ledgerRoutes);
+app.use('/api/pricing',       requireAuth, ownerOnly, pricingRoutes);
+app.use('/api/reports',       requireAuth, ownerOnly, reportRoutes);
+app.use('/api/inventory',     requireAuth, ownerOnly, inventoryRoutes);
+app.use('/api/expenses',      requireAuth, ownerOnly, expenseRoutes);
+app.use('/api/employees',     requireAuth, ownerOnly, employeeRoutes);
+app.use('/api/payroll',       requireAuth, ownerOnly, payrollRoutes);
+app.use('/api/rate-list',     requireAuth, ownerOnly, rateListRoutes);
 
 // ── 404 Handler ───────────────────────────────────────────────
 app.use((_req, res) => res.status(404).json({ error: 'Route not found' }));

@@ -3,7 +3,7 @@ import pool from '../../config/db.js';
 // All attendance for a given date (join employee info)
 export const findByDate = (date) =>
   pool.query(
-    `SELECT a.id, a.employee_id, a.date, a.status, a.notes,
+    `SELECT a.id AS attendance_id, e.id AS employee_id, a.date, a.status, a.notes,
             e.name AS employee_name, e.role
      FROM   employees e
      LEFT   JOIN attendance a ON a.employee_id = e.id AND a.date = $1
@@ -53,6 +53,17 @@ export const upsert = ({ employeeId, date, status, notes }) =>
      DO UPDATE SET status = $3, notes = $4, updated_at = NOW()
      RETURNING *`,
     [employeeId, date, status, notes || null]
+  );
+
+// Self-mark: employee marks own attendance (uses users.employee_id → employees.id)
+export const selfMark = (employeeId, date, status) =>
+  pool.query(
+    `INSERT INTO attendance (employee_id, date, status)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (employee_id, date)
+     DO UPDATE SET status = $3, updated_at = NOW()
+     RETURNING *`,
+    [employeeId, date, status]
   );
 
 // Bulk upsert for an entire day

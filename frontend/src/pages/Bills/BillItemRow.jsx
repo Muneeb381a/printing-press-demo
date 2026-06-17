@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Trash2, Plus, ChevronDown, ChevronUp, Copy } from 'lucide-react';
-import { Input } from '../../components/ui/index.js';
+import { Input, Select } from '../../components/ui/index.js';
 import CategoryCombobox from '../../components/ui/CategoryCombobox.jsx';
 import { formatCurrency } from '../../utils/format.js';
 import * as catApi from '../../api/categories.js';
@@ -44,12 +44,12 @@ const ReadBox = ({ label, value, highlight }) => (
 
 const BillItemRow = ({ item, index, onUpdate, onRemove, onDuplicate, onQuickCreate, catRef, onEnterFromLast }) => {
   const [expanded, setExpanded] = useState(false);
-
   const widthRef  = useRef(null);
   const heightRef = useRef(null);
   const qtyRef    = useRef(null);
   const rateRef   = useRef(null);
 
+  // Enter on a field → focus next; on last field → call onEnterFromLast
   const advance = (nextRef) => (e) => {
     if (e.key === 'Enter') { e.preventDefault(); nextRef.current?.focus(); nextRef.current?.select?.(); }
   };
@@ -95,10 +95,12 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onDuplicate, onQuickCrea
     const cat            = allCats.find((c) => String(c.id) === value);
     const newType        = TYPE_MAP[cat?.pricing_type] ?? 'fixed';
     const newPricingMode = cat?.pricing_mode ?? 'total';
+    const countInSqft    = cat?.count_in_sqft ?? true;
     onUpdate(item.id, {
       categoryId:  value,
       catType:     newType,
       pricingMode: newPricingMode,
+      countInSqft,
       width: '', height: '', quantity: 1, sqft: null, rate: '',
     });
     setTimeout(() => {
@@ -149,7 +151,7 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onDuplicate, onQuickCrea
               type="button"
               tabIndex={-1}
               onClick={() => onDuplicate?.(item.id)}
-              title="Duplicate row"
+              title="Duplicate this row"
               className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors cursor-pointer"
             >
               <Copy size={15} />
@@ -206,15 +208,26 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onDuplicate, onQuickCrea
                 onUpdate(item.id, { quantity: q, sqft: calcSqft(item.width, item.height, q) });
               }}
             />
-            <ReadBox
+            <Input
               label="Sqft"
-              value={item.sqft != null ? item.sqft : '—'}
-              highlight={false}
+              type="number" min="0" step="0.001" placeholder="auto"
+              size="lg"
+              value={item.sqft ?? ''}
+              onChange={(e) => {
+                const val = e.target.value;
+                // manual sqft entry → clear W×H so formula doesn't override it
+                onUpdate(item.id, {
+                  sqft:   val === '' ? null : parseFloat(parseFloat(val).toFixed(3)),
+                  width:  val === '' ? item.width  : '',
+                  height: val === '' ? item.height : '',
+                });
+              }}
+              suffix={<span className="text-xs text-slate-400">sqft</span>}
             />
             <Input
               ref={rateRef}
               label="Rate / sqft"
-              type="number" min="0" step="1" prefix="₨" placeholder="0"
+              type="number" min="0" step="0.01" prefix="₨" placeholder="0"
               size="lg"
               value={item.rate}
               onKeyDown={handleRateEnter}
@@ -228,6 +241,9 @@ const BillItemRow = ({ item, index, onUpdate, onRemove, onDuplicate, onQuickCrea
           </div>
           {item.sqft != null && rate > 0 && (
             <p className="text-xs text-slate-400 font-mono mt-2.5">
+              {item.width && item.height
+                ? <>{item.width}ft × {item.height}ft × {qty} = </>
+                : null}
               {item.sqft} sqft × ₨{rate.toLocaleString('en-PK')} ={' '}
               <span className="text-indigo-600 font-semibold">{formatCurrency(finalAmount)}</span>
               {(designFee > 0 || urgentFee > 0) && (

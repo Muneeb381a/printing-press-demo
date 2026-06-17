@@ -1,13 +1,14 @@
 import { useNavigate } from 'react-router-dom';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   DollarSign, TrendingUp, Clock, AlertCircle,
   Plus, Users, BarChart2, Boxes,
-  CheckCircle, AlertTriangle, ChevronRight,
+  CheckCircle, AlertTriangle, ChevronRight, ChevronDown,
   ArrowUpRight, FileText, TrendingDown,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../utils/format.js';
-import { StatusBadge } from '../components/ui/Badge.jsx';
+import { StatusBadge, PriorityBadge } from '../components/ui/Badge.jsx';
 import { useLanguage } from '../i18n/LanguageContext.jsx';
 import Banner from '../components/Banner.jsx';
 import * as dashAPI     from '../api/dashboard.js';
@@ -31,6 +32,22 @@ const todayLabel = (lang) =>
   new Date().toLocaleDateString(lang === 'ur' ? 'ur-PK' : 'en-PK', {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
   });
+
+const DASH_PERIODS = [
+  { value: 'today',     label: 'Today' },
+  { value: 'yesterday', label: 'Yesterday' },
+  { value: 'week',      label: 'This Week' },
+  { value: 'month',     label: 'This Month' },
+];
+
+const getPeriodRange = (p) => {
+  const today = new Date();
+  const fmt = (d) => d.toISOString().split('T')[0];
+  if (p === 'yesterday') { const y = new Date(today); y.setDate(today.getDate() - 1); return { from: fmt(y), to: fmt(y) }; }
+  if (p === 'week')      { const s = new Date(today); s.setDate(today.getDate() - (today.getDay() === 0 ? 6 : today.getDay() - 1)); return { from: fmt(s), to: fmt(today) }; }
+  if (p === 'month')     return { from: new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0], to: fmt(today) };
+  return { from: fmt(today), to: fmt(today) };
+};
 
 // ─────────────────────────────────────────────────────────────
 // Stat Card — large number, colored top strip, hover lift
@@ -134,6 +151,17 @@ const SectionHead = ({ title, action, onAction }) => (
 const Dashboard = () => {
   const navigate = useNavigate();
   const { t, lang } = useLanguage();
+  const [expandedOrders, setExpandedOrders] = useState(new Set());
+  const [period, setPeriod] = useState('today');
+
+  const { from: periodFrom, to: periodTo } = getPeriodRange(period);
+
+  const toggleOrderGroup = (customerId) =>
+    setExpandedOrders(prev => {
+      const next = new Set(prev);
+      next.has(customerId) ? next.delete(customerId) : next.add(customerId);
+      return next;
+    });
 
   const { data: settingsData } = useQuery({
     queryKey:  ['shop-settings'],
@@ -162,9 +190,15 @@ const Dashboard = () => {
     refetchInterval: 5 * 60 * 1000,
   });
 
+  const { data: revSummary, isLoading: loadingRev } = useQuery({
+    queryKey: ['dashboard-revenue', period],
+    queryFn:  () => dashAPI.getRevenueSummary(periodFrom, periodTo),
+    staleTime: 2 * 60 * 1000,
+  });
+
   const { data: expSummary } = useQuery({
-    queryKey: ['expense-summary-dash'],
-    queryFn:  () => expAPI.getSummary({ from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0] }),
+    queryKey: ['expense-summary-dash', period],
+    queryFn:  () => expAPI.getSummary({ from: periodFrom, to: periodTo }),
     staleTime: 2 * 60 * 1000,
   });
 
@@ -172,17 +206,43 @@ const Dashboard = () => {
   const s        = summary?.data          ?? {};
   const alerts   = stockAlerts?.data ?? [];
   const critical  = alerts.filter((a) => a.alert_level === 'critical');
-  const billsToday    = Number(s.today_bill_count)   || 0;
-  const billsThisMonth = Number(s.month_bill_count)  || 0;
-  const pendingCount  = Number(s.pending_count)      || 0;
-  const inProgCount   = Number(s.in_progress_count)  || 0;
+  const pendingCount    = Number(s.pending_count)      || 0;
+  const inProgCount     = Number(s.in_progress_count)  || 0;
 
-  const monthExpenses  = parseFloat(expSummary?.data?.this_month || 0);
-  const monthRevenue   = parseFloat(s.month_sales || 0);
-  const monthNetProfit = monthRevenue - monthExpenses;
+  const rev             = revSummary?.data             ?? {};
+  const periodRevenue   = parseFloat(rev.revenue       || 0);
+  const periodBillCount = parseInt(rev.bill_count      || 0, 10);
+  const periodExpenses  = parseFloat(expSummary?.data?.total_out || 0);
+  const periodNetProfit = periodRevenue - periodExpenses;
+  const periodLabel     = DASH_PERIODS.find(p => p.value === period)?.label ?? '';
 
-  const orders = pending?.data || [];
+  const orders   = pending?.data || [];
   const products = topProducts?.data || [];
+
+  // Group active orders by customer
+  const groupedOrders = useMemo(() => {
+    const map = new Map();
+    for (const bill of orders) {
+      const key = bill.customer_id;
+      if (!map.has(key)) {
+        map.set(key, {
+          customer_id:    bill.customer_id,
+          customer_name:  bill.customer_name,
+          customer_phone: bill.customer_phone,
+          bills: [],
+        });
+      }
+      map.get(key).bills.push(bill);
+    }
+    return [...map.values()];
+  }, [orders]);
+
+  // Priority counts across all active orders
+  const priorityCounts = useMemo(() => {
+    const counts = { urgent: 0, normal: 0, low: 0 };
+    for (const bill of orders) counts[bill.priority || 'normal'] = (counts[bill.priority || 'normal'] || 0) + 1;
+    return counts;
+  }, [orders]);
 
   // Max revenue for relative bar widths in top products
   const maxRevenue = products.length ? parseFloat(products[0]?.total_revenue || 0) : 1;
@@ -220,33 +280,51 @@ const Dashboard = () => {
         greeting={greeting(t)}
       />
 
+      {/* ── Period Selector ───────────────────────────────────── */}
+      <div className="flex items-center gap-1.5 p-1.5 bg-white border border-slate-200 rounded-2xl shadow-sm">
+        {DASH_PERIODS.map(({ value, label }) => (
+          <button
+            key={value}
+            onClick={() => setPeriod(value)}
+            className={cn(
+              'flex-1 py-2 rounded-xl text-xs font-bold transition-all',
+              period === value
+                ? 'bg-brand-600 text-white shadow-sm'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* ── Stat Cards ────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <DStat
-          title={t('today_revenue')}
-          value={formatCurrency(s.today_sales)}
-          sub={`${billsToday} ${billsToday === 1 ? t('bills_today') : t('bills_today_pl')}`}
+          title={`${periodLabel} Revenue`}
+          value={formatCurrency(periodRevenue)}
+          sub={`${periodBillCount} bill${periodBillCount !== 1 ? 's' : ''}`}
           icon={DollarSign}
           palette="emerald"
-          loading={loadingSummary}
+          loading={loadingRev}
           onClick={() => navigate('/reports')}
         />
         <DStat
-          title={t('this_month')}
-          value={formatCurrency(s.month_sales)}
-          sub={`${billsThisMonth} ${t('bills_month')}`}
-          icon={TrendingUp}
-          palette="brand"
-          loading={loadingSummary}
-          onClick={() => navigate('/reports')}
+          title={`${periodLabel} Expenses`}
+          value={formatCurrency(periodExpenses)}
+          sub={`${expSummary?.data?.out_count || 0} transactions`}
+          icon={TrendingDown}
+          palette="red"
+          loading={loadingRev}
+          onClick={() => navigate('/expenses')}
         />
         <DStat
-          title="Net Profit (Month)"
-          value={formatCurrency(monthNetProfit)}
-          sub={`${formatCurrency(monthExpenses)} expenses`}
-          icon={monthNetProfit >= 0 ? TrendingUp : TrendingDown}
-          palette={monthNetProfit >= 0 ? 'emerald' : 'red'}
-          loading={loadingSummary}
+          title="Net Profit"
+          value={formatCurrency(Math.abs(periodNetProfit))}
+          sub={`${periodNetProfit >= 0 ? 'Profit' : 'Loss'} · ${periodLabel.toLowerCase()}`}
+          icon={periodNetProfit >= 0 ? TrendingUp : TrendingDown}
+          palette={periodNetProfit >= 0 ? 'emerald' : 'red'}
+          loading={loadingRev}
           onClick={() => navigate('/reports')}
         />
         <DStat
@@ -283,7 +361,23 @@ const Dashboard = () => {
               </div>
               <div>
                 <h2 className="text-sm font-bold text-slate-900 leading-tight">{t('active_orders')}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">{t('active_orders_sub')}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  {priorityCounts.urgent > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-700 bg-red-50 ring-1 ring-red-200 px-1.5 py-0.5 rounded-full">
+                      <span className="w-1 h-1 rounded-full bg-red-500 shrink-0" />
+                      {priorityCounts.urgent} urgent
+                    </span>
+                  )}
+                  {priorityCounts.normal > 0 && (
+                    <span className="text-[10px] text-slate-400">{priorityCounts.normal} normal</span>
+                  )}
+                  {priorityCounts.low > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-50 ring-1 ring-green-200 px-1.5 py-0.5 rounded-full">
+                      <span className="w-1 h-1 rounded-full bg-green-500 shrink-0" />
+                      {priorityCounts.low} low
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
             <button
@@ -294,67 +388,149 @@ const Dashboard = () => {
             </button>
           </div>
 
-          {/* Orders list */}
+          {/* Orders list — grouped by customer */}
           {loadingPending ? (
             <div className="p-5 space-y-3">
               {[...Array(5)].map((_, i) => (
                 <div key={i} className="h-14 bg-slate-100 rounded-xl animate-pulse" />
               ))}
             </div>
-          ) : orders.length === 0 ? (
+          ) : groupedOrders.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-slate-300">
               <CheckCircle size={36} strokeWidth={1.5} className="mb-3 text-emerald-300" />
               <p className="text-sm font-semibold text-slate-500">{t('no_active_orders')}</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-50">
-              {orders.map((row) => {
-                const rem     = parseFloat(row.remaining_balance);
-                const overdue = row.due_date && new Date(row.due_date) < new Date();
+            <div className="divide-y divide-slate-100">
+              {groupedOrders.map((group) => {
+                const isExpanded   = expandedOrders.has(group.customer_id);
+                const totalAmt     = group.bills.reduce((s, b) => s + parseFloat(b.total_amount    || 0), 0);
+                const totalBalance = group.bills.reduce((s, b) => s + parseFloat(b.remaining_balance || 0), 0);
+                const initials     = group.customer_name?.slice(0, 2).toUpperCase() || '??';
+                const urgentCount  = group.bills.filter(b => b.priority === 'urgent').length;
+                const hasUrgent    = urgentCount > 0;
+
                 return (
-                  <button
-                    key={row.id}
-                    onClick={() => navigate(`/bills/${row.id}`)}
-                    className="group w-full flex items-center gap-4 px-5 py-3.5 hover:bg-slate-50 active:bg-slate-100 transition-colors cursor-pointer text-start"
-                  >
-                    {/* Bill number chip */}
-                    <span className="font-mono text-xs font-bold text-brand-600 bg-brand-50 px-2 py-1 rounded-lg shrink-0 group-hover:bg-brand-100 transition-colors">
-                      {row.bill_number}
-                    </span>
+                  <div key={group.customer_id} className={hasUrgent ? 'border-l-[3px] border-red-400' : 'border-l-[3px] border-transparent'}>
 
-                    {/* Customer */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate leading-tight">
-                        {row.customer_name}
-                      </p>
-                      <p className="text-xs text-slate-400 mt-0.5">{row.customer_phone}</p>
-                    </div>
-
-                    {/* Status */}
-                    <StatusBadge status={row.status} />
-
-                    {/* Amount */}
-                    <div className="text-end shrink-0 hidden sm:block">
-                      <p className="text-sm font-bold text-slate-800">{formatCurrency(row.total_amount)}</p>
-                      <p className={cn('text-xs mt-0.5 font-semibold', rem > 0 ? 'text-red-500' : 'text-emerald-500')}>
-                        {rem > 0 ? `−${formatCurrency(rem)}` : `✓ ${t('paid')}`}
-                      </p>
-                    </div>
-
-                    {/* Due date */}
-                    {row.due_date ? (
-                      <span className={cn(
-                        'text-xs font-semibold shrink-0 hidden md:block',
-                        overdue ? 'text-red-500' : 'text-slate-400'
+                    {/* Customer summary row */}
+                    <button
+                      onClick={() => toggleOrderGroup(group.customer_id)}
+                      className={cn(
+                        'group w-full flex items-center gap-3.5 px-5 py-3.5 transition-colors cursor-pointer text-start',
+                        hasUrgent
+                          ? 'bg-red-50/40 hover:bg-red-50 active:bg-red-100'
+                          : 'hover:bg-slate-50 active:bg-slate-100'
+                      )}
+                    >
+                      {/* Avatar — red for urgent customers */}
+                      <div className={cn(
+                        'w-9 h-9 rounded-xl flex items-center justify-center shrink-0',
+                        hasUrgent ? 'bg-red-100' : 'bg-brand-100'
                       )}>
-                        {overdue ? '⚠ ' : ''}{formatDate(row.due_date)}
-                      </span>
-                    ) : (
-                      <span className="text-slate-200 text-xs shrink-0 hidden md:block">—</span>
-                    )}
+                        <span className={cn('text-xs font-black', hasUrgent ? 'text-red-700' : 'text-brand-700')}>
+                          {initials}
+                        </span>
+                      </div>
 
-                    <ChevronRight size={14} className="text-slate-200 group-hover:text-brand-400 shrink-0 transition-colors" />
-                  </button>
+                      {/* Customer info */}
+                      <div className="flex-1 min-w-0">
+                        <p className={cn('text-sm font-semibold truncate leading-tight', hasUrgent ? 'text-red-900' : 'text-slate-800')}>
+                          {group.customer_name}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">{group.customer_phone}</p>
+                      </div>
+
+                      {/* Urgent chip — only when has urgent bills */}
+                      {hasUrgent && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-black text-red-700 bg-red-100 border border-red-200 px-2 py-0.5 rounded-full shrink-0 animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+                          {urgentCount === 1 ? 'URGENT' : `${urgentCount} URGENT`}
+                        </span>
+                      )}
+
+                      {/* Bill count */}
+                      <span className="text-xs font-bold text-brand-700 bg-brand-50 border border-brand-100 px-2 py-0.5 rounded-full shrink-0">
+                        {group.bills.length} bill{group.bills.length !== 1 ? 's' : ''}
+                      </span>
+
+                      {/* Amounts */}
+                      <div className="text-end shrink-0 hidden sm:block">
+                        <p className="text-sm font-bold text-slate-800">{formatCurrency(totalAmt)}</p>
+                        <p className={cn('text-xs mt-0.5 font-semibold', totalBalance > 0 ? 'text-red-500' : 'text-emerald-500')}>
+                          {totalBalance > 0 ? `−${formatCurrency(totalBalance)}` : `✓ ${t('paid')}`}
+                        </p>
+                      </div>
+
+                      {/* Expand chevron */}
+                      <div className={cn('shrink-0 transition-colors', hasUrgent ? 'text-red-300 group-hover:text-red-500' : 'text-slate-300 group-hover:text-brand-400')}>
+                        {isExpanded
+                          ? <ChevronDown  size={15} />
+                          : <ChevronRight size={15} />
+                        }
+                      </div>
+                    </button>
+
+                    {/* Expanded bill rows */}
+                    {isExpanded && group.bills.map((bill) => {
+                      const rem        = parseFloat(bill.remaining_balance);
+                      const overdue    = bill.due_date && new Date(bill.due_date) < new Date();
+                      const isUrgent   = bill.priority === 'urgent';
+                      return (
+                        <button
+                          key={bill.id}
+                          onClick={() => navigate(`/bills/${bill.id}`)}
+                          className={cn(
+                            'group w-full flex items-center gap-3.5 pl-16 pr-5 py-2.5 transition-colors cursor-pointer text-start border-t border-slate-100',
+                            isUrgent ? 'bg-red-50/60 hover:bg-red-50' : 'bg-slate-50/70 hover:bg-brand-50/50'
+                          )}
+                        >
+                          {/* Indent line */}
+                          <div className="absolute left-12 w-px h-5 bg-slate-200 hidden" />
+
+                          {/* Bill number chip */}
+                          <span className={cn(
+                            'font-mono text-xs font-bold px-2 py-1 rounded-lg shrink-0 transition-colors',
+                            isUrgent
+                              ? 'text-red-700 bg-red-50 border border-red-200 group-hover:border-red-400'
+                              : 'text-brand-600 bg-white border border-brand-100 group-hover:border-brand-300'
+                          )}>
+                            {bill.bill_number}
+                          </span>
+
+                          {/* Status + priority */}
+                          <StatusBadge status={bill.status} />
+                          {bill.priority && bill.priority !== 'normal' && (
+                            <PriorityBadge priority={bill.priority} />
+                          )}
+
+                          <div className="flex-1" />
+
+                          {/* Amounts */}
+                          <div className="text-end shrink-0 hidden sm:block">
+                            <p className="text-sm font-semibold text-slate-700">{formatCurrency(bill.total_amount)}</p>
+                            <p className={cn('text-xs mt-0.5', rem > 0 ? 'text-red-500 font-medium' : 'text-emerald-500')}>
+                              {rem > 0 ? `−${formatCurrency(rem)}` : `✓ paid`}
+                            </p>
+                          </div>
+
+                          {/* Due date */}
+                          {bill.due_date ? (
+                            <span className={cn(
+                              'text-xs font-semibold shrink-0 hidden md:block',
+                              overdue ? 'text-red-500' : 'text-slate-400'
+                            )}>
+                              {overdue ? '⚠ ' : ''}{formatDate(bill.due_date)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-200 text-xs shrink-0 hidden md:block">—</span>
+                          )}
+
+                          <ChevronRight size={13} className="text-slate-200 group-hover:text-brand-400 shrink-0 transition-colors" />
+                        </button>
+                      );
+                    })}
+                  </div>
                 );
               })}
             </div>

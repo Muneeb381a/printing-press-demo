@@ -8,7 +8,9 @@ export const createBill      = (data)           => client.post('/bills', data);
 export const completeBill    = (data)           => client.post('/bills/complete', data);
 export const updateBill      = (id, data)       => client.put(`/bills/${id}`, data);
 export const deleteBill      = (id)             => client.delete(`/bills/${id}`);
-export const updateStatus    = (id, status)     => client.patch(`/bills/${id}/status`, { status });
+export const updateStatus      = (id, status)             => client.patch(`/bills/${id}/status`,        { status });
+export const updatePriority    = (id, priority)           => client.patch(`/bills/${id}/priority`,      { priority });
+export const updateDesignStatus = (id, design_status, design_notes) => client.patch(`/bills/${id}/design-status`, { design_status, design_notes });
 export const markDelivered   = (id)             => client.patch(`/bills/${id}/deliver`);
 export const applyDiscount   = (id, data)       => client.patch(`/bills/${id}/discount`, data);
 
@@ -19,6 +21,7 @@ export const deleteItem      = (id, itemId)     => client.delete(`/bills/${id}/i
 export const addExtraCharge  = (id, data)       => client.post(`/bills/${id}/extra-charges`, data);
 export const deleteExtraCharge = (id, chargeId) => client.delete(`/bills/${id}/extra-charges/${chargeId}`);
 
+export const editBill         = (id, data)       => client.put(`/bills/${id}/full`, data);
 export const duplicateBill    = (id)             => client.post(`/bills/${id}/duplicate`);
 export const bulkUpdateStatus = (ids, status)   => client.post('/bills/bulk-status', { ids, status });
 export const bulkDeleteBills  = (ids)           => client.delete('/bills/bulk', { data: { ids } });
