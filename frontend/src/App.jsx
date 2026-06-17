@@ -1,6 +1,7 @@
-import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom';
 import AppLayout      from './components/layout/AppLayout.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
+import { useAuth }    from './auth/AuthContext.jsx';
 import Login          from './pages/Login.jsx';
 import Dashboard      from './pages/Dashboard.jsx';
 import Customers      from './pages/Customers/index.jsx';
@@ -22,8 +23,19 @@ import QuickQuote     from './pages/Calculator/index.jsx';
 import RateList       from './pages/RateList/index.jsx';
 import RateListPrint  from './pages/RateList/PrintView.jsx';
 import DailyClosing   from './pages/DailyClosing/index.jsx';
+import UserManagement from './pages/Users/index.jsx';
 import NotFound       from './pages/NotFound.jsx';
 import DemoExpired    from './pages/DemoExpired.jsx';
+
+const HomeRoute = () => {
+  const { isOwner } = useAuth();
+  return isOwner ? <Dashboard /> : <Navigate to="/bills" replace />;
+};
+
+const OwnerOnly = ({ element }) => {
+  const { isOwner } = useAuth();
+  return isOwner ? element : <Navigate to="/bills" replace />;
+};
 
 const router = createBrowserRouter([
   { path: 'login', element: <Login /> },
@@ -35,25 +47,30 @@ const router = createBrowserRouter([
       {
         element: <AppLayout />,
         children: [
-          { index: true,                      element: <Dashboard /> },
-          { path: 'customers',                element: <Customers /> },
-          { path: 'customers/:id/ledger',     element: <CustomerLedger /> },
-          { path: 'products',                 element: <Products /> },
+          { index: true,                      element: <HomeRoute /> },
+
+          // Both roles
           { path: 'bills',                    element: <Bills /> },
           { path: 'bills/new',                element: <BillForm /> },
           { path: 'bills/:id/edit',           element: <BillForm /> },
           { path: 'bills/:id',                element: <BillDetail /> },
-          { path: 'ledger',                   element: <Ledger /> },
-          { path: 'reports',                  element: <Reports /> },
-          { path: 'settings',                 element: <Settings /> },
-          { path: 'inventory',                element: <Inventory /> },
-          { path: 'expenses',                 element: <Expenses /> },
-          { path: 'employees',                element: <Employees /> },
           { path: 'attendance',               element: <Attendance /> },
-          { path: 'payroll',                  element: <Payroll /> },
-          { path: 'calculator',               element: <QuickQuote /> },
-          { path: 'rate-list',                element: <RateList /> },
-          { path: 'daily-closing',            element: <DailyClosing /> },
+
+          // Owner-only
+          { path: 'customers',                element: <OwnerOnly element={<Customers />} /> },
+          { path: 'customers/:id/ledger',     element: <OwnerOnly element={<CustomerLedger />} /> },
+          { path: 'products',                 element: <OwnerOnly element={<Products />} /> },
+          { path: 'ledger',                   element: <OwnerOnly element={<Ledger />} /> },
+          { path: 'reports',                  element: <OwnerOnly element={<Reports />} /> },
+          { path: 'settings',                 element: <OwnerOnly element={<Settings />} /> },
+          { path: 'inventory',                element: <OwnerOnly element={<Inventory />} /> },
+          { path: 'expenses',                 element: <OwnerOnly element={<Expenses />} /> },
+          { path: 'employees',                element: <OwnerOnly element={<Employees />} /> },
+          { path: 'payroll',                  element: <OwnerOnly element={<Payroll />} /> },
+          { path: 'calculator',               element: <OwnerOnly element={<QuickQuote />} /> },
+          { path: 'rate-list',                element: <OwnerOnly element={<RateList />} /> },
+          { path: 'daily-closing',            element: <OwnerOnly element={<DailyClosing />} /> },
+          { path: 'users',                    element: <OwnerOnly element={<UserManagement />} /> },
         ],
       },
     ],

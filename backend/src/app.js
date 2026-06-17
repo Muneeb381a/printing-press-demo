@@ -20,6 +20,7 @@ import employeeRoutes   from './routes/employees.js';
 import attendanceRoutes from './routes/attendance.js';
 import payrollRoutes    from './routes/payroll.js';
 import rateListRoutes   from './routes/rateList.js';
+import userRoutes       from './routes/users.js';
 import authRoutes       from './routes/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth }  from './middleware/requireAuth.js';
@@ -84,6 +85,7 @@ app.use('/api/expenses',      requireAuth, ownerOnly, expenseRoutes);
 app.use('/api/employees',     requireAuth, ownerOnly, employeeRoutes);
 app.use('/api/payroll',       requireAuth, ownerOnly, payrollRoutes);
 app.use('/api/rate-list',     requireAuth, ownerOnly, rateListRoutes);
+app.use('/api/users',         requireAuth, ownerOnly, userRoutes);
 
 // ── 404 Handler ───────────────────────────────────────────────
 app.use((_req, res) => res.status(404).json({ error: 'Route not found' }));

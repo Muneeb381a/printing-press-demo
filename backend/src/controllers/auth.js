@@ -1,9 +1,13 @@
+import { randomUUID } from 'crypto';
 import { signJwt } from '../utils/jwt.js';
+import { hashPassword, comparePassword } from '../utils/hash.js';
+import { invalidateSessionCache } from '../middleware/requireAuth.js';
+import * as Q from '../db/queries/auth.js';
 
-// ── In-memory rate limiter ────────────────────────────────────
-const attempts = new Map();
-const MAX_ATTEMPTS = 10;
-const WINDOW_MS    = 15 * 60 * 1000;
+// ── In-memory rate limiter (brute-force protection) ───────────
+const attempts  = new Map();
+const MAX_ATT   = 10;
+const WINDOW_MS = 15 * 60 * 1000;
 
 const checkRateLimit = (ip) => {
   const now = Date.now();
@@ -13,54 +17,94 @@ const checkRateLimit = (ip) => {
     return false;
   }
   rec.count++;
-  return rec.count > MAX_ATTEMPTS;
+  return rec.count > MAX_ATT;
 };
-
 const clearAttempts = (ip) => attempts.delete(ip);
 
 // ── POST /api/auth/login ──────────────────────────────────────
-export const login = (req, res) => {
+export const login = async (req, res) => {
   const ip = req.ip || req.socket?.remoteAddress || 'unknown';
 
   if (checkRateLimit(ip)) {
     return res.status(429).json({ error: 'Too many failed attempts. Try again in 15 minutes.' });
   }
 
-  const { username = '', password = '' } = req.body;
+  // Accept { username } or legacy { email } — both work as the login identifier
+  const { username = '', email = '', password = '' } = req.body;
+  const loginId = (username || email).trim();
 
-  const adminUser = process.env.ADMIN_USERNAME || 'admin';
-  const adminPass = process.env.ADMIN_PASSWORD;
-
-  if (!adminPass) {
-    console.error('[Auth] ADMIN_PASSWORD env var is not set!');
-    return res.status(500).json({ error: 'Server is not configured correctly.' });
+  if (!loginId || !password) {
+    return res.status(400).json({ error: 'Username and password are required' });
+  }
+  if (password.length > 1000) {
+    return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  if (username.trim() !== adminUser || password !== adminPass) {
+  const { rows } = await Q.findByLogin(loginId);
+  const user = rows[0];
+
+  if (!user || !comparePassword(password, user.password_hash)) {
     return res.status(401).json({ error: 'Invalid username or password' });
   }
 
   clearAttempts(ip);
 
-  // userId: null so FK constraints are never violated in demo DB.
-  // role: 'owner' ensures requireRole('owner') passes for all protected routes.
-  // sessionToken: 'demo' is a fixed value — demo requireAuth doesn't validate it in DB.
-  const token = signJwt({ userId: null, username: adminUser, role: 'owner', sessionToken: 'demo' });
+  const sessionToken = randomUUID();
+  await Q.setSessionToken(user.id, sessionToken);
+  invalidateSessionCache();
+
+  const token = signJwt({
+    userId:       user.id,
+    username:     user.username,
+    role:         user.role,
+    sessionToken,
+  });
 
   return res.json({
     token,
-    user: { id: null, username: adminUser, fullName: 'Demo Owner', role: 'owner' },
+    user: {
+      id:       user.id,
+      username: user.username,
+      fullName: user.full_name,
+      email:    user.email,
+      role:     user.role,
+    },
   });
 };
 
 // ── POST /api/auth/logout ─────────────────────────────────────
-export const logout = (_req, res) => {
+export const logout = async (req, res) => {
+  if (req.user?.userId) {
+    await Q.setSessionToken(req.user.userId, null);
+  }
+  invalidateSessionCache();
   res.json({ message: 'Logged out' });
 };
 
 // ── POST /api/auth/change-password ────────────────────────────
-export const changePassword = (_req, res) => {
-  res.status(422).json({ error: 'Password changes are not available in the demo.' });
+export const changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'currentPassword and newPassword are required' });
+  }
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  }
+  if (newPassword.length > 1000) {
+    return res.status(400).json({ error: 'Password must be under 1000 characters' });
+  }
+
+  const { rows } = await Q.findById(req.user.userId);
+  if (!rows.length || !comparePassword(currentPassword, rows[0].password_hash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+
+  const newHash = hashPassword(newPassword);
+  await Q.updatePassword(req.user.userId, newHash);
+  invalidateSessionCache();
+
+  return res.json({ message: 'Password changed. Please log in again.' });
 };
 
 // ── GET /api/auth/me ──────────────────────────────────────────

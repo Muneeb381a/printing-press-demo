@@ -3,9 +3,11 @@ import {
   LayoutDashboard, Users, Package, FileText,
   BookOpen, BarChart2, Printer, Settings, Boxes, X, TrendingDown,
   UserCheck, CalendarDays, Calculator, ListOrdered, ClipboardList, Banknote,
+  UserCog,
 } from 'lucide-react';
 import cn from '../../utils/cn.js';
 import { useLanguage } from '../../i18n/LanguageContext.jsx';
+import { useAuth } from '../../auth/AuthContext.jsx';
 
 const OWNER_NAV_GROUPS = [
   {
@@ -34,6 +36,7 @@ const OWNER_NAV_GROUPS = [
       { to: '/employees',  key: 'employees',  icon: UserCheck },
       { to: '/attendance', key: 'attendance', icon: CalendarDays },
       { to: '/payroll',    key: 'payroll',    icon: Banknote },
+      { to: '/users',      key: 'users',      icon: UserCog },
     ],
   },
   {
@@ -41,6 +44,21 @@ const OWNER_NAV_GROUPS = [
     items: [
       { to: '/inventory', key: 'inventory', icon: Boxes },
       { to: '/settings',  key: 'settings',  icon: Settings },
+    ],
+  },
+];
+
+const EMPLOYEE_NAV_GROUPS = [
+  {
+    key: 'nav_main',
+    items: [
+      { to: '/bills', key: 'bills', icon: FileText },
+    ],
+  },
+  {
+    key: 'nav_hr',
+    items: [
+      { to: '/attendance', key: 'attendance', icon: CalendarDays },
     ],
   },
 ];
@@ -78,7 +96,8 @@ const NavItem = ({ to, icon: Icon, label, end, onClose }) => (
 
 const Sidebar = ({ open, onClose }) => {
   const { t } = useLanguage();
-  const navGroups = OWNER_NAV_GROUPS;
+  const { isOwner, user } = useAuth();
+  const navGroups = isOwner ? OWNER_NAV_GROUPS : EMPLOYEE_NAV_GROUPS;
 
   return (
     <>
@@ -107,7 +126,9 @@ const Sidebar = ({ open, onClose }) => {
             </div>
             <div>
               <p className="text-white font-bold text-sm leading-none tracking-tight">Press ERP</p>
-              <p className="text-slate-500 text-xs mt-0.5">Demo</p>
+              <p className="text-slate-500 text-xs mt-0.5">
+                {isOwner ? 'Owner' : (user?.fullName || user?.username || 'Employee')}
+              </p>
             </div>
           </div>
           <button
