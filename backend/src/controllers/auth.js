@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto';
 import { signJwt } from '../utils/jwt.js';
 import { hashPassword, comparePassword } from '../utils/hash.js';
 import { invalidateSessionCache } from '../middleware/requireAuth.js';
+import { invalidateDemoCache } from '../middleware/demoGuard.js';
+import pool from '../config/db.js';
 import * as Q from '../db/queries/auth.js';
 
 // ── In-memory rate limiter (brute-force protection) ───────────
@@ -48,6 +50,14 @@ export const login = async (req, res) => {
   }
 
   clearAttempts(ip);
+
+  // Start 7-day demo clock on the very first successful login
+  pool.query(`
+    UPDATE shop_settings
+    SET demo_started_at = NOW(),
+        demo_expires_at = NOW() + INTERVAL '7 days'
+    WHERE id = 1 AND demo_started_at IS NULL
+  `).then(() => invalidateDemoCache()).catch(() => {});
 
   const sessionToken = randomUUID();
   await Q.setSessionToken(user.id, sessionToken);

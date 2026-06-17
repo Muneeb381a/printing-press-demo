@@ -5,7 +5,7 @@ import {
   DollarSign, TrendingUp, Clock, AlertCircle,
   Plus, Users, BarChart2, Boxes,
   CheckCircle, AlertTriangle, ChevronRight, ChevronDown,
-  ArrowUpRight, FileText, TrendingDown,
+  ArrowUpRight, FileText, TrendingDown, Timer, PhoneCall,
 } from 'lucide-react';
 import { formatCurrency, formatDate } from '../utils/format.js';
 import { StatusBadge, PriorityBadge } from '../components/ui/Badge.jsx';
@@ -144,6 +144,53 @@ const SectionHead = ({ title, action, onAction }) => (
   </div>
 );
 
+// ── Demo Countdown Banner ──────────────────────────────────────
+const DemoCountdownBanner = ({ demo }) => {
+  if (!demo || demo.notStarted || demo.isExpired) return null;
+  const { daysLeft, hoursLeft } = demo;
+  const isUrgent  = daysLeft < 2;
+  const isWarning = daysLeft >= 2 && daysLeft < 4;
+
+  const colors = isUrgent
+    ? { wrap: 'bg-red-50 border-red-200',    badge: 'bg-red-500',    title: 'text-red-800',    sub: 'text-red-600' }
+    : isWarning
+    ? { wrap: 'bg-amber-50 border-amber-200', badge: 'bg-amber-500',  title: 'text-amber-800',  sub: 'text-amber-600' }
+    : { wrap: 'bg-sky-50 border-sky-200',     badge: 'bg-sky-500',    title: 'text-sky-800',    sub: 'text-sky-600' };
+
+  const timeStr = daysLeft > 0
+    ? `${daysLeft} din ${hoursLeft} ghante`
+    : `${hoursLeft} ghante`;
+
+  return (
+    <div className={cn('flex items-center gap-3 px-5 py-3.5 border rounded-2xl', colors.wrap)}>
+      <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center shrink-0', colors.badge)}>
+        <Timer size={17} className="text-white" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className={cn('text-sm font-bold leading-tight', colors.title)}>
+          Demo {timeStr} mein khatam hoga
+        </p>
+        <p className={cn('text-xs mt-0.5', colors.sub)}>
+          {isUrgent
+            ? 'Foran hamse rabta karain — apna data save rakhain'
+            : 'Demo khatam hone se pehle full version khareedain aur apna data mehfooz rakhain'}
+        </p>
+      </div>
+      <a
+        href="https://wa.me/923239062418"
+        target="_blank"
+        rel="noopener noreferrer"
+        className={cn(
+          'shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white transition-opacity hover:opacity-90',
+          colors.badge
+        )}
+      >
+        <PhoneCall size={12} /> Rabta Karain
+      </a>
+    </div>
+  );
+};
+
 // ─────────────────────────────────────────────────────────────
 // Dashboard
 // ─────────────────────────────────────────────────────────────
@@ -202,6 +249,13 @@ const Dashboard = () => {
     staleTime: 2 * 60 * 1000,
   });
 
+  const { data: demoStatus } = useQuery({
+    queryKey:        ['demo-status'],
+    queryFn:         settingsAPI.getDemoStatus,
+    refetchInterval: 60 * 60 * 1000,
+    staleTime:       30 * 60 * 1000,
+  });
+
   const shop     = settingsData?.data     ?? {};
   const s        = summary?.data          ?? {};
   const alerts   = stockAlerts?.data ?? [];
@@ -249,6 +303,9 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-5">
+
+      {/* ── Demo Countdown Banner ─────────────────────────────── */}
+      <DemoCountdownBanner demo={demoStatus} />
 
       {/* ── Critical Stock Banner ─────────────────────────────── */}
       {critical.length > 0 && (

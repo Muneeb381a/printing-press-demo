@@ -19,6 +19,14 @@ client.interceptors.request.use((config) => {
 client.interceptors.response.use(
   (res) => res.data,
   (err) => {
+    // Demo expired → redirect to demo-expired page
+    if (err.response?.status === 403 && err.response?.data?.code === 'demo_expired') {
+      if (!window.location.pathname.includes('/demo-expired')) {
+        window.location.href = '/demo-expired';
+      }
+      return Promise.reject(err);
+    }
+
     // Expired / invalid token → clear session and redirect to login
     if (err.response?.status === 401) {
       const code = err.response?.data?.code;

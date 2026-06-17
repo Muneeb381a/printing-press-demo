@@ -26,6 +26,7 @@ import { errorHandler } from './middleware/errorHandler.js';
 import { requireAuth }  from './middleware/requireAuth.js';
 import { requireRole }  from './middleware/requireRole.js';
 import { demoGuard }    from './middleware/demoGuard.js';
+import pool             from './config/db.js';
 
 const ownerOnly = requireRole('owner');
 
@@ -58,6 +59,26 @@ if (process.env.NODE_ENV !== 'test') {
 
 // ── Health Check (public, no demo guard) ─────────────────────
 app.get('/health', (_req, res) => res.json({ status: 'ok', ts: new Date() }));
+
+// ── Demo Status (public — before demoGuard so it's always reachable) ─
+app.get('/api/demo-status', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT demo_started_at, demo_expires_at FROM shop_settings WHERE id = 1'
+    );
+    const row    = rows[0] || {};
+    const now    = new Date();
+    const exp    = row.demo_expires_at ? new Date(row.demo_expires_at) : null;
+    const started = row.demo_started_at ? new Date(row.demo_started_at) : null;
+    const isExpired  = exp ? now > exp : false;
+    const msLeft     = exp ? Math.max(0, exp.getTime() - now.getTime()) : null;
+    const daysLeft   = msLeft != null ? Math.floor(msLeft / 86_400_000) : null;
+    const hoursLeft  = msLeft != null ? Math.floor((msLeft % 86_400_000) / 3_600_000) : null;
+    res.json({ expiresAt: exp, startedAt: started, isExpired, daysLeft, hoursLeft, notStarted: !started });
+  } catch (_) {
+    res.json({ expiresAt: null, startedAt: null, isExpired: false, daysLeft: null, hoursLeft: null, notStarted: true });
+  }
+});
 
 // ── Demo expiry guard — applies to all API routes ─────────────
 app.use('/api', demoGuard);
